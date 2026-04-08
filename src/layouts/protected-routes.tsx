@@ -11,7 +11,7 @@ const ProtectedRoutes = ({ children }: { children: ReactNode }) => {
     }
 
     if (!isSignedIn) {
-        return <Navigate to="/signin" replace />;
+        return <Navigate to="/sign-in" replace />;
     }
 
     return <>{children}</>;
