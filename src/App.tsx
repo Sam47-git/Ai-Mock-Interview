@@ -6,21 +6,23 @@ import { SignInPage } from "@/routes/sign-in";
 import { SignUpPage } from "@/routes/sign-up";
 import ProtectedRoutes from "@/layouts/protected-routes";
 import MainLayout from "@/layouts/main-layout";
+import AuthHandler from "@/handlers/auth-handler";
 
 
 const App = () => {
   return (
     <Router>
+      <AuthHandler />
       <Routes>
         {/* Public routes */}
-        <Route element={<PublicLayout />}>
-        <Route index element={<HomePage />} />
+        <Route path="/" element={<PublicLayout />}>
+          <Route index element={<HomePage />} />
         </Route>
 
         {/*Authenticated routes */}
-        <Route element={<AuthenticationLayout />}>
-        <Route path="/sign-in/*" element={<SignInPage />} />
-        <Route path="/sign-up/*" element={<SignUpPage />} />
+        <Route path="/" element={<AuthenticationLayout />}>
+          <Route path="sign-in/*" element={<SignInPage />} />
+          <Route path="sign-up/*" element={<SignUpPage />} />
         </Route>
 
         {/* Private routes */}
