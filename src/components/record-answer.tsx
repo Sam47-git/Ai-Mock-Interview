@@ -8,7 +8,7 @@ import {
   VideoOff,
   WebcamIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import useSpeechToText, { type ResultType } from "react-hook-speech-to-text";
 import { useParams } from "react-router-dom";
 import WebCam from "react-webcam";
@@ -33,6 +33,7 @@ interface RecordAnswerProps {
   question: { question: string; answer: string };
   isWebCam: boolean;
   setIsWebCam: (value: boolean) => void;
+  onSaved?: () => void;
 }
 
 interface AIResponse {
@@ -44,6 +45,7 @@ const RecordAnswer = ({
   question,
   isWebCam,
   setIsWebCam,
+  onSaved,
 }: RecordAnswerProps) => {
   const {
     interimResult,
@@ -62,11 +64,20 @@ const RecordAnswer = ({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  const isRecordingIntended = useRef(false);
+
   const { userId } = useAuth();
   const { interviewId } = useParams();
 
+  useEffect(() => {
+    if (!isRecording && isRecordingIntended.current) {
+      startSpeechToText();
+    }
+  }, [isRecording, startSpeechToText]);
+
   const recordUserAnswer = async () => {
     if (isRecording) {
+      isRecordingIntended.current = false;
       stopSpeechToText();
 
       if (userAnswer?.length < 30) {
@@ -86,18 +97,18 @@ const RecordAnswer = ({
 
       setAiResult(aiResult);
     } else {
+      isRecordingIntended.current = true;
       startSpeechToText();
     }
   };
 
   const cleanJsonResponse = (responseText: string) => {
-    // Step 1: Trim any surrounding whitespace
     let cleanText = responseText.trim();
-
-    // Step 2: Remove any occurrences of "json" or code block symbols (``` or `)
-    cleanText = cleanText.replace(/(json|```|`)/g, "");
-
-    // Step 3: Parse the clean JSON text into an array of objects
+    cleanText = cleanText.replace(/```json\s*/gi, "").replace(/```\s*/g, "").replace(/`/g, "");
+    const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      cleanText = jsonMatch[0];
+    }
     try {
       return JSON.parse(cleanText);
     } catch (error) {
@@ -139,8 +150,12 @@ const RecordAnswer = ({
 
   const recordNewAnswer = () => {
     setUserAnswer("");
+    isRecordingIntended.current = false;
     stopSpeechToText();
-    startSpeechToText();
+    setTimeout(() => {
+      isRecordingIntended.current = true;
+      startSpeechToText();
+    }, 300);
   };
 
   const saveUserAnswer = async () => {
@@ -184,6 +199,7 @@ const RecordAnswer = ({
         });
 
         toast("Saved", { description: "Your answer has been saved.." });
+        onSaved?.();
       }
 
       setUserAnswer("");

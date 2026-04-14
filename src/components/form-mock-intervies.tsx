@@ -162,9 +162,21 @@ const FormMockInterview  = ({ initialData }: FormMockInterviewProps) => {
       navigate("/generate", { replace: true });
     } catch (error) {
       console.log(error);
-      toast.error("Error..", {
-        description: `Something went wrong. Please try again later`,
-      });
+      
+      // Check if it's a 503 Service Unavailable error from Google API
+      if (error instanceof Error && error.message?.includes("503")) {
+        toast.error("API Service Overloaded", {
+          description: `The AI service is experiencing high demand. Please try again in a few moments.`,
+        });
+      } else if (error instanceof Error && error.message?.includes("fetch")) {
+        toast.error("Network Error", {
+          description: `Failed to connect to the AI service. Please check your internet connection and try again.`,
+        });
+      } else {
+        toast.error("Error", {
+          description: `Something went wrong. Please try again later`,
+        });
+      }
     } finally {
       setLoading(false);
     }
