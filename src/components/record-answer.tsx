@@ -27,7 +27,7 @@ import { db } from "@/config/firebase.config";
 import TooltipButton from "./tooltip-button";
 import { useAuth } from "@clerk/react";
 import SaveModal from "./save-model";
-import chatSession from "@/scripts";
+import { createChatSession } from "@/scripts";
 
 interface RecordAnswerProps {
   question: { question: string; answer: string };
@@ -37,7 +37,10 @@ interface RecordAnswerProps {
 }
 
 interface AIResponse {
-  ratings: number;
+  accuracy: number;
+  completeness: number;
+  clarity: number;
+  rating: number;
   feedback: string;
 }
 
@@ -63,6 +66,9 @@ const RecordAnswer = ({
   const [aiResult, setAiResult] = useState<AIResponse | null>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isFirstRestart = useRef(true);
 
   const isRecordingIntended = useRef(false);
 
@@ -71,9 +77,42 @@ const RecordAnswer = ({
 
   useEffect(() => {
     if (!isRecording && isRecordingIntended.current) {
+      if (!isFirstRestart.current) {
+        toast("Mic Reconnected", {
+          description: "Microphone dropped and has been automatically restarted.",
+        });
+      }
+      isFirstRestart.current = false;
       startSpeechToText();
     }
   }, [isRecording, startSpeechToText]);
+
+  useEffect(() => {
+    if (isRecording) {
+      timerRef.current = setInterval(() => {
+        setRecordingSeconds((prev) => prev + 1);
+      }, 1000);
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      setRecordingSeconds(0);
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [isRecording]);
+
+  useEffect(() => {
+    // Reset everything when the question changes so old recordings don't carry over
+    isRecordingIntended.current = false;
+    isFirstRestart.current = true;
+    stopSpeechToText();
+    setUserAnswer("");
+    setAiResult(null);
+    setRecordingSeconds(0);
+  }, [question.question, stopSpeechToText]);
 
   const recordUserAnswer = async () => {
     if (isRecording) {
@@ -123,15 +162,26 @@ const RecordAnswer = ({
   ): Promise<AIResponse> => {
     setIsAiGenerating(true);
     const prompt = `
+      You are a strict technical interviewer. Evaluate the user's answer briefly and return ONLY a JSON object — no extra text, no markdown.
+
       Question: "${qst}"
       User Answer: "${userAns}"
       Correct Answer: "${qstAns}"
-      Please compare the user's answer to the correct answer, and provide a rating (from 1 to 10) based on answer quality, and offer feedback for improvement.
-      Return the result in JSON format with the fields "ratings" (number) and "feedback" (string).
+
+      Score using this rubric:
+      - "accuracy": 0–2 (0=wrong, 1=partially correct, 2=correct)
+      - "completeness": 0–2 (0=missing key points, 1=partially covered, 2=well covered)
+      - "clarity": 0–1 (0=unclear, 1=clear)
+      - "rating": accuracy + completeness + clarity (number, max 5)
+      - "feedback": MAX 3 sentences. Start with what was good, then state the 1–2 most important missing points only.
+
+      Return ONLY this JSON:
+      {"accuracy":number,"completeness":number,"clarity":number,"rating":number,"feedback":"string"}
     `;
 
     try {
-      const aiResult = await chatSession.sendMessage(prompt);
+      const freshSession = createChatSession();
+      const aiResult = await freshSession.sendMessage(prompt);
 
       const parsedResult: AIResponse = cleanJsonResponse(
         aiResult.response.text()
@@ -142,7 +192,13 @@ const RecordAnswer = ({
       toast("Error", {
         description: "An error occurred while generating feedback.",
       });
-      return { ratings: 0, feedback: "Unable to generate feedback" };
+      return {
+        accuracy: 0,
+        completeness: 0,
+        clarity: 0,
+        rating: 0,
+        feedback: "Unable to generate feedback",
+      };
     } finally {
       setIsAiGenerating(false);
     }
@@ -156,6 +212,12 @@ const RecordAnswer = ({
       isRecordingIntended.current = true;
       startSpeechToText();
     }, 300);
+  };
+
+  const formatTime = (secs: number) => {
+    const m = Math.floor(secs / 60).toString().padStart(2, "0");
+    const s = (secs % 60).toString().padStart(2, "0");
+    return `${m}:${s}`;
   };
 
   const saveUserAnswer = async () => {
@@ -193,7 +255,10 @@ const RecordAnswer = ({
           correct_ans: question.answer,
           user_ans: userAnswer,
           feedback: aiResult.feedback,
-          rating: aiResult.ratings,
+          rating: aiResult.rating,
+          accuracy: aiResult.accuracy,
+          completeness: aiResult.completeness,
+          clarity: aiResult.clarity,
           userId,
           createdAt: serverTimestamp(),
         });
@@ -259,17 +324,27 @@ const RecordAnswer = ({
           onClick={() => setIsWebCam(!isWebCam)}
         />
 
-        <TooltipButton
-          content={isRecording ? "Stop Recording" : "Start Recording"}
-          icon={
-            isRecording ? (
-              <CircleStop className="min-w-5 min-h-5" />
-            ) : (
-              <Mic className="min-w-5 min-h-5" />
-            )
-          }
-          onClick={recordUserAnswer}
-        />
+        <div className="relative flex flex-col items-center">
+          {isRecording && (
+            <span className="absolute -inset-1 rounded-full animate-ping bg-red-400 opacity-50" />
+          )}
+          <TooltipButton
+            content={isRecording ? "Stop Recording" : "Start Recording"}
+            icon={
+              isRecording ? (
+                <CircleStop className="min-w-5 min-h-5 text-red-500" />
+              ) : (
+                <Mic className="min-w-5 min-h-5" />
+              )
+            }
+            onClick={recordUserAnswer}
+          />
+          {isRecording && (
+            <span className="text-xs text-red-500 font-mono mt-1">
+              {formatTime(recordingSeconds)}
+            </span>
+          )}
+        </div>
 
         <TooltipButton
           content="Record Again"

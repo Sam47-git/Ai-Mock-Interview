@@ -38,10 +38,10 @@ const safetySettings = [
   },
 ];
 
-const chatSession = model.startChat({
-  generationConfig,
-  safetySettings,
-});
-
-export default chatSession;
+// Export a factory function instead of a singleton.
+// A shared chat session accumulates history across all questions,
+// causing Gemini to get confused and fail on later questions.
+// Each AI call should get a fresh session with no prior context.
+export const createChatSession = () =>
+  model.startChat({ generationConfig, safetySettings });
 

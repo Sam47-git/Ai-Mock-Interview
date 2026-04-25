@@ -92,16 +92,22 @@ const Feedback = () => {
 
   //   calculate the ratings out of 10
 
+  const totalRawScore = useMemo(() => {
+    return feedbacks.reduce((acc, feedback) => acc + (feedback.rating ?? 0), 0);
+  }, [feedbacks]);
+
   const overAllRating = useMemo(() => {
     if (feedbacks.length === 0) return "0.0";
+    const maxPossible = feedbacks.length * 5;
+    return ((totalRawScore / maxPossible) * 10).toFixed(1);
+  }, [feedbacks, totalRawScore]);
 
-    const totalRatings = feedbacks.reduce(
-      (acc, feedback) => acc + feedback.rating,
-      0
-    );
-
-    return (totalRatings / feedbacks.length).toFixed(1);
-  }, [feedbacks]);
+  const overAllRemark = useMemo(() => {
+    if (totalRawScore >= 20) return { label: "Excellent", color: "text-emerald-600" };
+    if (totalRawScore >= 14) return { label: "Good", color: "text-blue-600" };
+    if (totalRawScore >= 8)  return { label: "Needs Improvement", color: "text-yellow-600" };
+    return { label: "Poor", color: "text-red-500" };
+  }, [totalRawScore]);
 
   if (isLoading) {
     return <LoaderPage className="w-full h-[70vh]" />;
@@ -127,12 +133,17 @@ const Feedback = () => {
         description="Your personalized feedback is now available. Dive in to see your strengths, areas for improvement, and tips to help you ace your next interview."
       />
 
-      <p className="text-base text-muted-foreground">
-        Your overall interview ratings :{" "}
-        <span className="text-emerald-500 font-semibold text-xl">
-          {overAllRating} / 10
-        </span>
-      </p>
+      <div className="flex flex-col gap-1">
+        <p className="text-base text-muted-foreground">
+          Your overall interview rating :{" "}
+          <span className="text-emerald-500 font-semibold text-xl">
+            {overAllRating} / 10
+          </span>
+        </p>
+        <p className={`text-sm font-semibold ${overAllRemark.color}`}>
+          {overAllRemark.label}
+        </p>
+      </div>
 
       {interview && <InterviewPin interview={interview} onMockPage />}
 
@@ -159,9 +170,18 @@ const Feedback = () => {
               </AccordionTrigger>
 
               <AccordionContent className="px-5 py-6 bg-white rounded-b-lg space-y-5 shadow-inner">
-                <div className="text-lg font-semibold to-gray-700">
-                  <Star className="inline mr-2 text-yellow-400" />
-                  Rating : {feed.rating}
+                <div className="space-y-1">
+                  <div className="text-lg font-semibold text-gray-700">
+                    <Star className="inline mr-2 text-yellow-400" />
+                    Score: {feed.rating ?? 0} / 5
+                  </div>
+                  <div className="text-sm text-gray-500 flex items-center gap-3 pl-8">
+                    <span>Accuracy <strong>{feed.accuracy ?? 0}</strong>/2</span>
+                    <span>·</span>
+                    <span>Completeness <strong>{feed.completeness ?? 0}</strong>/2</span>
+                    <span>·</span>
+                    <span>Clarity <strong>{feed.clarity ?? 0}</strong>/1</span>
+                  </div>
                 </div>
 
                 <Card className="border-none space-y-3 p-4 bg-green-50 rounded-lg shadow-md">

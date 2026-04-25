@@ -29,6 +29,9 @@ export interface UserAnswer {
   user_ans: string;
   feedback: string;
   rating: number;
+  accuracy: number;
+  completeness: number;
+  clarity: number;
   userId: string;
   createdAt: Timestamp;
   updateAt: Timestamp;

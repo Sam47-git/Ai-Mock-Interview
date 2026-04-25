@@ -27,7 +27,7 @@ import {
 } from "./ui/form";
 import { Textarea } from "./ui/textarea";
 import { Input } from "./ui/input";
-import chatSession from "@/scripts";
+import { createChatSession } from "@/scripts";
 
 interface FormMockInterviewProps {
   initialData: Interview | null;
@@ -59,6 +59,7 @@ const FormMockInterview  = ({ initialData }: FormMockInterviewProps) => {
 
   const { isValid, isSubmitted } = form.formState;
   const [loading, setLoading] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const navigate = useNavigate();
   const { userId } = useAuth();
 
@@ -121,7 +122,8 @@ const FormMockInterview  = ({ initialData }: FormMockInterviewProps) => {
         Return only the JSON array with questions and answers.
         `;
 
-    const aiResult = await chatSession.sendMessage(prompt);
+    const freshSession = createChatSession();
+    const aiResult = await freshSession.sendMessage(prompt);
     const cleanedResponse = cleanAiResponse(aiResult.response.text());
 
     return cleanedResponse;
@@ -180,6 +182,16 @@ const FormMockInterview  = ({ initialData }: FormMockInterviewProps) => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleResetConfirm = () => {
+    form.reset({
+      position: "",
+      description: "",
+      experience: 0,
+      techStack: "",
+    });
+    setShowResetConfirm(false);
   };
 
   useEffect(() => {
@@ -310,10 +322,11 @@ const FormMockInterview  = ({ initialData }: FormMockInterviewProps) => {
 
           <div className="w-full flex items-center justify-end gap-6">
             <Button
-              type="reset"
+              type="button"
               size={"sm"}
               variant={"outline"}
               disabled={isSubmitted || loading}
+              onClick={() => setShowResetConfirm(true)}
             >
               Reset
             </Button>
@@ -331,6 +344,36 @@ const FormMockInterview  = ({ initialData }: FormMockInterviewProps) => {
           </div>
         </form>
       </FormProvider>
+
+      {showResetConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm space-y-4">
+            <h2 className="text-lg font-semibold text-gray-800">Reset Form?</h2>
+            <p className="text-sm text-gray-500">
+              This will clear all entered fields. Are you sure you want to proceed?
+            </p>
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <Button
+                type="button"
+                onClick={() => setShowResetConfirm(false)}
+                size={"sm"}
+                variant={"outline"}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleResetConfirm}
+                size={"sm"}
+                variant={"outline"}
+                className="bg-orange-600 text-white hover:bg-orange-700 border-orange-600"
+              >
+                Yes, Reset
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
   </div>
 };
