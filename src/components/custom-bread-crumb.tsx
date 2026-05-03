@@ -12,12 +12,12 @@ import React from "react";
 
 interface CustomBreadCrumbProps {
   breadCrumbPage: string;
-  breadCrumpItems?: { link: string; label: string }[];
+  breadCrumbItems?: { link: string; label: string }[];
 }
 
 const CustomBreadCrumb = ({
   breadCrumbPage,
-  breadCrumpItems,
+  breadCrumbItems,
 }: CustomBreadCrumbProps) => {
   return (
     <Breadcrumb>
@@ -32,8 +32,8 @@ const CustomBreadCrumb = ({
           </BreadcrumbLink>
         </BreadcrumbItem>
 
-        {breadCrumpItems &&
-          breadCrumpItems.map((item, i) => (
+        {breadCrumbItems &&
+          breadCrumbItems.map((item, i) => (
             <React.Fragment key={i}>
               <BreadcrumbSeparator />
               <BreadcrumbItem>

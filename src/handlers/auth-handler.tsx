@@ -15,8 +15,6 @@ const AuthHandler = () => {
         const storeUserData = async () => {
             if (!isLoaded) return;
 
-            console.log("AuthHandler:", { isSignedIn, userId: user?.id });
-
             if (isSignedIn && user?.id) {
                 setLoading(true);
 
@@ -34,13 +32,7 @@ const AuthHandler = () => {
                             updatedAt: serverTimestamp(),
                         };
 
-                        console.log("Writing user to Firestore:", userData);
-
                         await setDoc(userRef, userData);
-
-                        console.log("User successfully stored in Firestore");
-                    } else {
-                        console.log("User already exists:", user.id);
                     }
 
                 } catch (error) {

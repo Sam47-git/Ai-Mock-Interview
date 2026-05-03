@@ -1,53 +1,18 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import { db } from "@/config/firebase.config";
-import { doc, getDoc } from "firebase/firestore";
-import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { LoaderPage } from "./loader-page";
 import { Button } from "@/components/ui/button";
 import { Lightbulb, Sparkles, WebcamIcon } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import WebCam from "react-webcam";
-import type { Interview } from "@/types";
+import { useState } from "react";
 import CustomBreadCrumb from "@/components/custom-bread-crumb";
 import InterviewPin from "@/components/pin";
+import { useInterview } from "@/hooks/use-interview";
 
 const MockLoadPage = () => {
   const { interviewId } = useParams<{ interviewId: string }>();
-  const [interview, setInterview] = useState<Interview | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const { interview, isLoading } = useInterview(interviewId);
   const [isWebCamEnabled, setIsWebCamEnabled] = useState(false);
-
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    if (!interviewId) {
-      navigate("/generate", { replace: true });
-      return;
-    }
-
-    setIsLoading(true);
-    const fetchInterview = async () => {
-      try {
-        const interviewDoc = await getDoc(doc(db, "interviews", interviewId));
-        if (interviewDoc.exists()) {
-          setInterview({
-            id: interviewDoc.id,
-            ...interviewDoc.data(),
-          } as Interview);
-        } else {
-          navigate("/generate", { replace: true });
-        }
-      } catch (error) {
-        console.log(error);
-        navigate("/generate", { replace: true });
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchInterview();
-  }, [interviewId, navigate]);
 
   if (isLoading) {
     return <LoaderPage className="w-full h-[70vh]" />;
@@ -58,10 +23,13 @@ const MockLoadPage = () => {
       <div className="flex items-center justify-between w-full gap-2">
         <CustomBreadCrumb
           breadCrumbPage={interview?.position || ""}
-          breadCrumpItems={[{ label: "Mock Interviews", link: "/generate" }]}
+          breadCrumbItems={[{ label: "Mock Interviews", link: "/generate" }]}
         />
 
-        <Link to={`/generate/interview/${interviewId}/start`}>
+        <Link
+          to={`/generate/interview/${interviewId}/start`}
+          state={{ isWebCamEnabled }}
+        >
           <Button size={"sm"}>
             Start <Sparkles />
           </Button>

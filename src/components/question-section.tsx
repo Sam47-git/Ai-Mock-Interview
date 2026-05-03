@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useLocation, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Volume2, VolumeX } from "lucide-react";
 import TooltipButton from "./tooltip-button";
@@ -12,8 +11,9 @@ interface QuestionSectionProps {
 }
 
 export const QuestionSection = ({ questions, interviewId }: QuestionSectionProps) => {
+  const { state } = useLocation();
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isWebCam, setIsWebCam] = useState(false);
+  const [isWebCam, setIsWebCam] = useState(state?.isWebCamEnabled ?? false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [savedQuestions, setSavedQuestions] = useState<number[]>([]);
   const navigate = useNavigate();
@@ -71,21 +71,31 @@ export const QuestionSection = ({ questions, interviewId }: QuestionSectionProps
       {/* Step indicator row with action button on the right */}
       <div className="flex items-center justify-between w-full">
         <div className="flex items-center gap-2 flex-wrap">
-          {questions.map((_, i) => (
-            <div
-              key={i}
-              className={cn(
-                "px-3 py-1 rounded-full text-xs font-medium border",
-                i === activeIndex
-                  ? "bg-emerald-500 text-white border-emerald-500"
-                  : savedQuestions.includes(i)
-                  ? "bg-emerald-100 text-emerald-700 border-emerald-300"
-                  : "bg-gray-100 text-gray-500 border-gray-300"
-              )}
-            >
-              {savedQuestions.includes(i) ? `✓ Q${i + 1}` : `Q${i + 1}`}
-            </div>
-          ))}
+          {questions.map((_, i) => {
+            const isClickable = i <= activeIndex || savedQuestions.includes(i);
+
+            return (
+              <div
+                key={i}
+                onClick={() => {
+                  if (isClickable) {
+                    setActiveIndex(i);
+                  }
+                }}
+                className={cn(
+                  "px-3 py-1 rounded-full text-xs font-medium border",
+                  i === activeIndex
+                    ? "bg-emerald-500 text-white border-emerald-500"
+                    : savedQuestions.includes(i)
+                    ? "bg-emerald-100 text-emerald-700 border-emerald-300"
+                    : "bg-gray-100 text-gray-500 border-gray-300",
+                  isClickable ? "cursor-pointer" : "cursor-not-allowed"
+                )}
+              >
+                {savedQuestions.includes(i) ? `✓ Q${i + 1}` : `Q${i + 1}`}
+              </div>
+            );
+          })}
         </div>
 
         {/* Single action button — top right, only one visible at a time */}

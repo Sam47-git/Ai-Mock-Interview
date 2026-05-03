@@ -8,7 +8,7 @@ import {
   where,
 } from "firebase/firestore";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { LoaderPage } from "./loader-page";
@@ -27,68 +27,72 @@ import CustomBreadCrumb from "@/components/custom-bread-crumb";
 import InterviewPin from "@/components/pin";
 import type { Interview, UserAnswer } from "@/types";
 import Headings from "@/components/headings";
-
 const Feedback = () => {
   const { interviewId } = useParams<{ interviewId: string }>();
+  const navigate = useNavigate();
   const [interview, setInterview] = useState<Interview | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [feedbacks, setFeedbacks] = useState<UserAnswer[]>([]);
   const [activeFeed, setActiveFeed] = useState("");
   const { userId } = useAuth();
-  const navigate = useNavigate();
 
-  if (!interviewId) {
-    navigate("/generate", { replace: true });
-  }
   useEffect(() => {
-    if (interviewId) {
-      const fetchInterview = async () => {
-        if (interviewId) {
-          try {
-            const interviewDoc = await getDoc(
-              doc(db, "interviews", interviewId)
-            );
-            if (interviewDoc.exists()) {
-              setInterview({
-                id: interviewDoc.id,
-                ...interviewDoc.data(),
-              } as Interview);
-            }
-          } catch (error) {
-            console.log(error);
-          }
+    if (!interviewId) navigate("/generate", { replace: true });
+  }, [interviewId, navigate]);
+
+  useEffect(() => {
+    if (!interviewId) return;
+
+    const fetchInterview = async () => {
+      try {
+        const interviewDoc = await getDoc(doc(db, "interviews", interviewId));
+        if (interviewDoc.exists()) {
+          setInterview({ id: interviewDoc.id, ...interviewDoc.data() } as Interview);
+        } else {
+          navigate("/generate", { replace: true });
         }
-      };
+      } catch (error) {
+        console.log(error);
+        toast("Error", {
+          description: "Something went wrong. Please try again later..",
+        });
+      }
+    };
 
-      const fetchFeedbacks = async () => {
-        setIsLoading(true);
-        try {
-          const querSanpRef = query(
-            collection(db, "userAnswers"),
-            where("userId", "==", userId),
-            where("mockIdRef", "==", interviewId)
-          );
+    const fetchFeedbacks = async () => {
+      try {
+        const querySnapRef = query(
+          collection(db, "userAnswers"),
+          where("userId", "==", userId),
+          where("mockIdRef", "==", interviewId)
+        );
 
-          const querySnap = await getDocs(querSanpRef);
+        const querySnap = await getDocs(querySnapRef);
 
-          const interviewData: UserAnswer[] = querySnap.docs.map((doc) => {
-            return { id: doc.id, ...doc.data() } as UserAnswer;
-          });
+        const interviewData: UserAnswer[] = querySnap.docs.map((doc) => {
+          return { id: doc.id, ...doc.data() } as UserAnswer;
+        });
 
-          setFeedbacks(interviewData);
-        } catch (error) {
-          console.log(error);
-          toast("Error", {
-            description: "Something went wrong. Please try again later..",
-          });
-        } finally {
-          setIsLoading(false);
-        }
-      };
-      fetchInterview();
-      fetchFeedbacks();
-    }
-  }, [interviewId, navigate, userId]);
+        setFeedbacks(interviewData);
+      } catch (error) {
+        console.error("fetchFeedbacks error:", error);
+        toast("Error", {
+          description: "Something went wrong. Please try again later..",
+        });
+      }
+    };
+
+    const loadData = async () => {
+      setIsLoading(true);
+      try {
+        await Promise.all([fetchInterview(), fetchFeedbacks()]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
+  }, [interviewId, userId, navigate]);
 
   //   calculate the ratings out of 10
 
@@ -103,11 +107,14 @@ const Feedback = () => {
   }, [feedbacks, totalRawScore]);
 
   const overAllRemark = useMemo(() => {
-    if (totalRawScore >= 20) return { label: "Excellent", color: "text-emerald-600" };
-    if (totalRawScore >= 14) return { label: "Good", color: "text-blue-600" };
-    if (totalRawScore >= 8)  return { label: "Needs Improvement", color: "text-yellow-600" };
+    if (feedbacks.length === 0) return { label: "N/A", color: "text-gray-500" };
+    const maxScore = feedbacks.length * 5;
+    const pct = totalRawScore / maxScore;
+    if (pct >= 0.8) return { label: "Excellent", color: "text-emerald-600" };
+    if (pct >= 0.56) return { label: "Good", color: "text-blue-600" };
+    if (pct >= 0.32) return { label: "Needs Improvement", color: "text-yellow-600" };
     return { label: "Poor", color: "text-red-500" };
-  }, [totalRawScore]);
+  }, [feedbacks.length, totalRawScore]);
 
   if (isLoading) {
     return <LoaderPage className="w-full h-[70vh]" />;
@@ -118,7 +125,7 @@ const Feedback = () => {
       <div className="flex items-center justify-between w-full gap-2">
         <CustomBreadCrumb
           breadCrumbPage={"Feedback"}
-          breadCrumpItems={[
+          breadCrumbItems={[
             { label: "Mock Interviews", link: "/generate" },
             {
               label: `${interview?.position}`,

@@ -16,6 +16,8 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import TooltipButton from "./tooltip-button";
+import Modal from "./modal";
+import { Button } from "./ui/button";
 
 
 interface InterviewPinProps {
@@ -104,7 +106,7 @@ const InterviewPin = ({
               onClick={() => {
                 navigate(`/generate/${interview?.id}`, { replace: true });
               }}
-              disbaled={false}
+              disabled={false}
               buttonClassName="hover:text-sky-500"
               icon={<Eye />}
               loading={false}
@@ -118,7 +120,7 @@ const InterviewPin = ({
                   replace: true,
                 });
               }}
-              disbaled={false}
+              disabled={false}
               buttonClassName="hover:text-yellow-500"
               icon={<Newspaper />}
               loading={false}
@@ -132,7 +134,7 @@ const InterviewPin = ({
                   replace: true,
                 });
               }}
-              disbaled={false}
+              disabled={false}
               buttonClassName="hover:text-sky-500"
               icon={<Sparkles />}
               loading={false}
@@ -142,7 +144,7 @@ const InterviewPin = ({
               content="Delete"
               buttonVariant={"ghost"}
               onClick={() => setShowConfirm(true)}
-              disbaled={false}
+              disabled={false}
               buttonClassName="hover:text-red-500"
               icon={<Trash2 />}
               loading={false}
@@ -152,32 +154,31 @@ const InterviewPin = ({
       </CardFooter>
       </Card>
 
-      {showConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm space-y-4">
-            <h2 className="text-lg font-semibold text-gray-800">Delete Interview?</h2>
-            <p className="text-sm text-gray-500">
-              This will permanently delete the interview and all saved answers. This action cannot be undone.
-            </p>
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                onClick={() => setShowConfirm(false)}
-                disabled={deleting}
-                className="px-4 py-2 text-sm rounded-md border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDelete}
-                disabled={deleting}
-                className="px-4 py-2 text-sm rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
-              >
-                {deleting ? "Deleting..." : "Yes, Delete"}
-              </button>
-            </div>
-          </div>
+      <Modal
+        title="Delete Interview?"
+        description="This will permanently delete the interview and all saved answers. This action cannot be undone."
+        isOpen={showConfirm}
+        onClose={() => setShowConfirm(false)}
+      >
+        <div className="flex items-center justify-end gap-3 pt-2">
+          <Button
+            type="button"
+            onClick={() => setShowConfirm(false)}
+            disabled={deleting}
+            variant={"outline"}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={handleDelete}
+            disabled={deleting}
+            className="bg-red-600 text-white hover:bg-red-700"
+          >
+            {deleting ? "Deleting..." : "Yes, Delete"}
+          </Button>
         </div>
-      )}
+      </Modal>
     </>
   );
 };

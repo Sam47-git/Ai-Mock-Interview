@@ -13,6 +13,7 @@ import useSpeechToText, { type ResultType } from "react-hook-speech-to-text";
 import { useParams } from "react-router-dom";
 import WebCam from "react-webcam";
 import { toast } from "sonner";
+import { parseAiJson } from "@/lib/ai-utils";
 
 
 import {
@@ -141,20 +142,6 @@ const RecordAnswer = ({
     }
   };
 
-  const cleanJsonResponse = (responseText: string) => {
-    let cleanText = responseText.trim();
-    cleanText = cleanText.replace(/```json\s*/gi, "").replace(/```\s*/g, "").replace(/`/g, "");
-    const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      cleanText = jsonMatch[0];
-    }
-    try {
-      return JSON.parse(cleanText);
-    } catch (error) {
-      throw new Error("Invalid JSON format: " + (error as Error)?.message);
-    }
-  };
-
   const generateResult = async (
     qst: string,
     qstAns: string,
@@ -183,7 +170,7 @@ const RecordAnswer = ({
       const freshSession = createChatSession();
       const aiResult = await freshSession.sendMessage(prompt);
 
-      const parsedResult: AIResponse = cleanJsonResponse(
+      const parsedResult: AIResponse = parseAiJson<AIResponse>(
         aiResult.response.text()
       );
       return parsedResult;
@@ -206,6 +193,7 @@ const RecordAnswer = ({
 
   const recordNewAnswer = () => {
     setUserAnswer("");
+    setAiResult(null);
     isRecordingIntended.current = false;
     stopSpeechToText();
     setTimeout(() => {
@@ -221,11 +209,11 @@ const RecordAnswer = ({
   };
 
   const saveUserAnswer = async () => {
-    setLoading(true);
-
     if (!aiResult) {
       return;
     }
+
+    setLoading(true);
 
     const currentQuestion = question.question;
     try {
@@ -234,7 +222,8 @@ const RecordAnswer = ({
       const userAnswerQuery = query(
         collection(db, "userAnswers"),
         where("userId", "==", userId),
-        where("question", "==", currentQuestion)
+        where("question", "==", currentQuestion),
+        where("mockIdRef", "==", interviewId)
       );
 
       const querySnap = await getDocs(userAnswerQuery);
@@ -362,7 +351,7 @@ const RecordAnswer = ({
             )
           }
           onClick={() => setOpen(!open)}
-          disbaled={!aiResult}
+          disabled={!aiResult}
         />
       </div>
 
@@ -370,7 +359,7 @@ const RecordAnswer = ({
         <h2 className="text-lg font-semibold">Your Answer:</h2>
 
         <p className="text-sm mt-2 text-gray-700 whitespace-normal">
-          {userAnswer || "Start recording to see your ansewer here"}
+          {userAnswer || "Start recording to see your answer here"}
         </p>
 
         {interimResult && (

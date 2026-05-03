@@ -28,6 +28,8 @@ import {
 import { Textarea } from "./ui/textarea";
 import { Input } from "./ui/input";
 import { createChatSession } from "@/scripts";
+import { parseAiJson } from "@/lib/ai-utils";
+import Modal from "./modal";
 
 interface FormMockInterviewProps {
   initialData: Interview | null;
@@ -74,34 +76,11 @@ const FormMockInterview  = ({ initialData }: FormMockInterviewProps) => {
     : { title: "Created..!", description: "New Mock Interview created..." };
 
 
-  const cleanAiResponse = (responseText: string) => {
-    // Step 1: Trim any surrounding whitespace
-    let cleanText = responseText.trim();
-
-    // Step 2: Remove any occurrences of "json" or code block symbols (``` or `)
-    cleanText = cleanText.replace(/(json|```|`)/g, "");
-
-    // Step 3: Extract a JSON array by capturing text between square brackets
-    const jsonArrayMatch = cleanText.match(/\[.*\]/s);
-    if (jsonArrayMatch) {
-      cleanText = jsonArrayMatch[0];
-    } else {
-      throw new Error("No JSON array found in response");
-    }
-
-    // Step 4: Parse the clean JSON text into an array of objects
-    try {
-      return JSON.parse(cleanText);
-    } catch (error) {
-      throw new Error("Invalid JSON format: " + (error as Error)?.message);
-    }
-  };
-
   const generateAiResponse = async (data: FormData) => {
     const prompt = `
-        As an experienced prompt engineer, generate a JSON array containing 
-        5 technical interview questions along with detailed answers based on 
-        the following job information. Each object in the array should have 
+        As an experienced prompt engineer, generate a JSON array containing
+        5 technical interview questions along with detailed answers based on
+        the following job information. Each object in the array should have
         the fields "question" and "answer", formatted as follows:
 
         [
@@ -115,20 +94,20 @@ const FormMockInterview  = ({ initialData }: FormMockInterviewProps) => {
         - Years of Experience Required: ${data?.experience}
         - Tech Stacks: ${data?.techStack}
 
-        The questions should assess skills in ${data?.techStack} development 
-        and best practices, problem-solving, and experience handling complex 
-        requirements. Please format the output strictly as an array of JSON 
-        objects without any additional labels, code blocks, or explanations. 
+        The questions should assess skills in ${data?.techStack} development
+        and best practices, problem-solving, and experience handling complex
+        requirements. Please format the output strictly as an array of JSON
+        objects without any additional labels, code blocks, or explanations.
         Return only the JSON array with questions and answers.
         `;
 
     const freshSession = createChatSession();
     const aiResult = await freshSession.sendMessage(prompt);
-    const cleanedResponse = cleanAiResponse(aiResult.response.text());
+    const cleanedResponse = parseAiJson<{ question: string; answer: string }[]>(aiResult.response.text());
 
     return cleanedResponse;
   };
-  
+
   const onSubmit: SubmitHandler<FormData> = async (data) => {
     try {
       setLoading(true);
@@ -164,7 +143,7 @@ const FormMockInterview  = ({ initialData }: FormMockInterviewProps) => {
       navigate("/generate", { replace: true });
     } catch (error) {
       console.log(error);
-      
+
       // Check if it's a 503 Service Unavailable error from Google API
       if (error instanceof Error && error.message?.includes("503")) {
         toast.error("API Service Overloaded", {
@@ -377,35 +356,32 @@ const FormMockInterview  = ({ initialData }: FormMockInterviewProps) => {
         </form>
       </FormProvider>
 
-      {showResetConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm space-y-4">
-            <h2 className="text-lg font-semibold text-gray-800">Reset Form?</h2>
-            <p className="text-sm text-gray-500">
-              This will clear all entered fields. Are you sure you want to proceed?
-            </p>
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <Button
-                type="button"
-                onClick={() => setShowResetConfirm(false)}
-                size={"sm"}
-                variant={"outline"}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                onClick={handleResetConfirm}
-                size={"sm"}
-                variant={"outline"}
-                className="bg-orange-600 text-white hover:bg-orange-700 border-orange-600"
-              >
-                Yes, Reset
-              </Button>
-            </div>
-          </div>
+      <Modal
+        title="Reset Form?"
+        description="This will clear all entered fields. Are you sure you want to proceed?"
+        isOpen={showResetConfirm}
+        onClose={() => setShowResetConfirm(false)}
+      >
+        <div className="flex items-center justify-end gap-3 pt-2">
+          <Button
+            type="button"
+            onClick={() => setShowResetConfirm(false)}
+            size={"sm"}
+            variant={"outline"}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={handleResetConfirm}
+            size={"sm"}
+            variant={"outline"}
+            className="bg-orange-600 text-white hover:bg-orange-700 border-orange-600"
+          >
+            Yes, Reset
+          </Button>
         </div>
-      )}
+      </Modal>
 
   </div>
 };
