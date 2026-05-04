@@ -121,7 +121,7 @@ const Feedback = () => {
   }
 
   return (
-    <div className="flex flex-col w-full gap-8 py-5">
+    <div className="flex flex-col w-full gap-8 py-5" style={{ background: "#f5f2ee" }}>
       <div className="flex items-center justify-between w-full gap-2">
         <CustomBreadCrumb
           breadCrumbPage={"Feedback"}
@@ -151,6 +151,133 @@ const Feedback = () => {
           {overAllRemark.label}
         </p>
       </div>
+
+{feedbacks.length > 0 && (() => {
+  // ── Score calculations ────────────────────────────────────────────
+  const ratingPct       = Math.round((feedbacks.reduce((a, f) => a + (f.rating ?? 0), 0) / (feedbacks.length * 5)) * 100);
+  const accuracyPct     = Math.round((feedbacks.reduce((a, f) => a + (f.accuracy ?? 0), 0) / (feedbacks.length * 2)) * 100);
+  const completenessPct = Math.round((feedbacks.reduce((a, f) => a + (f.completeness ?? 0), 0) / (feedbacks.length * 2)) * 100);
+  const clarityPct      = Math.round((feedbacks.reduce((a, f) => a + (f.clarity ?? 0), 0) / (feedbacks.length * 1)) * 100);
+
+  const sorted = [...feedbacks].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+  const best   = sorted[0];
+  const worst  = sorted[sorted.length - 1];
+
+  const bars = [
+    { label: "Overall Rating",  pct: ratingPct,       color: "#4caf7d" },
+    { label: "Accuracy",        pct: accuracyPct,     color: "#f0a882" },
+    { label: "Completeness",    pct: completenessPct, color: "#7b6ef6" },
+    { label: "Clarity",         pct: clarityPct,      color: "#c8502a" },
+  ];
+
+  const remarkColor =
+    ratingPct >= 80 ? "#4caf7d" :
+    ratingPct >= 56 ? "#7b6ef6" :
+    ratingPct >= 32 ? "#f0a882" : "#f87171";
+
+  return (
+    <div style={{
+      background: "#1a1a1a",
+      borderRadius: "20px",
+      padding: "1.75rem",
+      border: "1px solid #2a2a2a",
+      width: "100%",
+    }}>
+      {/* ── Header ── */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.75rem" }}>
+        <div>
+          <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "rgba(255,255,255,0.35)", letterSpacing: "0.12em", textTransform: "uppercase" }}>
+            Session Report
+          </div>
+          <div style={{ fontSize: "0.82rem", color: remarkColor, fontWeight: 600, marginTop: "2px" }}>
+            {overAllRemark.label}
+          </div>
+        </div>
+        <div style={{ fontFamily: "'DM Serif Display', Georgia, serif", fontSize: "2.4rem", color: "#f0a882", lineHeight: 1 }}>
+          {overAllRating}
+          <span style={{ fontSize: "1rem", color: "rgba(255,255,255,0.25)", marginLeft: "3px" }}>/10</span>
+        </div>
+      </div>
+
+      {/* ── Side-by-side: bars LEFT, cards RIGHT ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2rem", alignItems: "start" }}>
+
+        {/* LEFT: Score bars */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.1rem" }}>
+          {bars.map(({ label, pct, color }) => (
+            <div key={label}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.78rem", color: "rgba(255,255,255,0.5)", marginBottom: "6px" }}>
+                <span>{label}</span>
+                <span style={{ color: pct > 0 ? color : "rgba(255,255,255,0.25)" }}>
+                  {pct > 0 ? `${pct}%` : "—"}
+                </span>
+              </div>
+              <div style={{ height: "7px", background: "#2a2a2a", borderRadius: "4px", overflow: "hidden" }}>
+                <div style={{
+                  height: "100%",
+                  borderRadius: "4px",
+                  background: pct > 0 ? color : "#2a2a2a",
+                  width: `${pct}%`,
+                  transition: "width 1.2s ease",
+                  minWidth: pct > 0 ? "6px" : "0",
+                }} />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* RIGHT: Best answer + Needs work */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+
+          {/* Best answer */}
+          <div style={{ background: "rgba(76,175,125,0.1)", border: "1px solid rgba(76,175,125,0.25)", borderRadius: "12px", padding: "1rem" }}>
+            <div style={{ fontSize: "0.68rem", fontWeight: 700, color: "#4caf7d", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "8px" }}>
+              ✓ Best Answer
+            </div>
+            <div style={{ fontSize: "0.82rem", color: "rgba(255,255,255,0.75)", lineHeight: 1.55, marginBottom: "8px" }}>
+              {best?.question}
+            </div>
+            <div style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.4)", marginBottom: "6px", fontStyle: "italic", lineHeight: 1.5 }}>
+              {best?.user_ans?.slice(0, 120)}{(best?.user_ans?.length ?? 0) > 120 ? "..." : ""}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <div style={{ height: "4px", flex: 1, background: "#2a2a2a", borderRadius: "2px", overflow: "hidden" }}>
+                <div style={{ height: "100%", background: "#4caf7d", width: `${((best?.rating ?? 0) / 5) * 100}%`, borderRadius: "2px" }} />
+              </div>
+              <span style={{ fontSize: "0.72rem", color: "#4caf7d", fontWeight: 700, whiteSpace: "nowrap" }}>
+                {best?.rating ?? 0} / 5
+              </span>
+            </div>
+          </div>
+
+          {/* Needs work */}
+          <div style={{ background: "rgba(200,80,42,0.1)", border: "1px solid rgba(200,80,42,0.25)", borderRadius: "12px", padding: "1rem" }}>
+            <div style={{ fontSize: "0.68rem", fontWeight: 700, color: "#f0a882", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "8px" }}>
+              ↑ Needs Work
+            </div>
+            <div style={{ fontSize: "0.82rem", color: "rgba(255,255,255,0.75)", lineHeight: 1.55, marginBottom: "8px" }}>
+              {worst?.question}
+            </div>
+            <div style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.4)", marginBottom: "6px", fontStyle: "italic", lineHeight: 1.5 }}>
+              {worst?.user_ans
+                ? `${worst.user_ans.slice(0, 120)}${worst.user_ans.length > 120 ? "..." : ""}`
+                : "No answer recorded"}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <div style={{ height: "4px", flex: 1, background: "#2a2a2a", borderRadius: "2px", overflow: "hidden" }}>
+                <div style={{ height: "100%", background: "#c8502a", width: `${((worst?.rating ?? 0) / 5) * 100}%`, borderRadius: "2px" }} />
+              </div>
+              <span style={{ fontSize: "0.72rem", color: "#f0a882", fontWeight: 700, whiteSpace: "nowrap" }}>
+                {worst?.rating ?? 0} / 5
+              </span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+})()}
 
       {interview && <InterviewPin interview={interview} onMockPage />}
 

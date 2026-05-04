@@ -1,6 +1,6 @@
 export const MainRoutes = [
     {
-        label: "Home",
+        label: "InterviewAI",
         href: "/"
     },
     {

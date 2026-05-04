@@ -51,7 +51,7 @@ const Dashboard = () => {
   }, [userId]);
 
 
-  return <>
+  return <div style={{ background: "#f5f2ee" }}>
      <div className="flex w-full items-center justify-between mt-4">
       <Headings
         title="Dashboard"
@@ -104,7 +104,7 @@ const Dashboard = () => {
           </div>
         )}
       </div>
-    </>
+    </div>
 };
 
 export default Dashboard;

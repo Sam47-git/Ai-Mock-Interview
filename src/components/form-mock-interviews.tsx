@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { FormProvider, useForm } from "react-hook-form";
+import { FormProvider, useForm, type Resolver } from "react-hook-form";
 import type { SubmitHandler } from "react-hook-form";
 
 
@@ -50,7 +50,7 @@ type FormData = z.infer<typeof formSchema>;
 
 const FormMockInterview  = ({ initialData }: FormMockInterviewProps) => {
     const form = useForm<FormData>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(formSchema) as Resolver<FormData>,
     defaultValues: {
       position: initialData?.position || "",
       description: initialData?.description || "",
@@ -302,7 +302,7 @@ const FormMockInterview  = ({ initialData }: FormMockInterviewProps) => {
                     disabled={loading}
                     placeholder="eg:- 5 Years"
                     {...field}
-                    value={field.value || ""}
+                    value={field.value ?? ""}
                   />
                 </FormControl>
               </FormItem>

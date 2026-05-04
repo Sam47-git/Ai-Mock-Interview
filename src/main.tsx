@@ -9,15 +9,24 @@ import { ToasterProvider } from '@/provider/toast-provider.tsx'
 
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 
-if(!PUBLISHABLE_KEY){
-  throw new Error('Missing publishable key');
-}
+const root = createRoot(document.getElementById('root')!)
 
-createRoot(document.getElementById('root')!).render(
+root.render(
   <StrictMode>
-    <ClerkProvider publishableKey={PUBLISHABLE_KEY} afterSignOutUrl="/">
-      <App />
-      <ToasterProvider />
-    </ClerkProvider>
+    {PUBLISHABLE_KEY ? (
+      <ClerkProvider publishableKey={PUBLISHABLE_KEY} afterSignOutUrl="/">
+        <App />
+        <ToasterProvider />
+      </ClerkProvider>
+    ) : (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white px-6 py-12">
+        <div className="max-w-lg text-center">
+          <h1 className="text-3xl font-semibold mb-4">Missing Clerk Publishable Key</h1>
+          <p className="text-sm leading-7 text-slate-300">
+            Set <code className="rounded bg-slate-800 px-1 py-0.5">VITE_CLERK_PUBLISHABLE_KEY</code> in your environment or <code className="rounded bg-slate-800 px-1 py-0.5">.env</code> file and restart the dev server.
+          </p>
+        </div>
+      </div>
+    )}
   </StrictMode>,
 )

@@ -19,7 +19,7 @@ const MockLoadPage = () => {
   }
 
   return (
-    <div className="flex flex-col w-full gap-8 py-5">
+    <div className="flex flex-col w-full gap-8 py-5" style={{ background: "#f5f2ee" }}>
       <div className="flex items-center justify-between w-full gap-2">
         <CustomBreadCrumb
           breadCrumbPage={interview?.position || ""}

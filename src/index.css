@@ -1,9 +1,28 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Outfit:wght@300;400;500;600&display=swap');
+
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  --ai-ink: #0d0d0d;
+  --ai-ink-2: #3d3d3d;
+  --ai-ink-3: #7a7a7a;
+  --ai-surface: #f5f2ee;
+  --ai-surface-2: #ede9e3;
+  --ai-surface-3: #e3ddd5;
+  --ai-accent: #c8502a;
+  --ai-accent-lt: #f5e8e3;
+  --ai-sans: 'Outfit', sans-serif;
+  --ai-serif: 'DM Serif Display', Georgia, serif;
+}
+
+body {
+  background: #f5f2ee;
+}
 
 @layer base {
   .theme {

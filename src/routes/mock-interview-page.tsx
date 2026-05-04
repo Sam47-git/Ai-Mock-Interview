@@ -16,7 +16,7 @@ const MockInterviewPage = () => {
   }
 
   return (
-    <div className="flex flex-col w-full gap-8 py-5">
+    <div className="flex flex-col w-full gap-8 py-5" style={{ background: "#f5f2ee" }}>
       <CustomBreadCrumb
         breadCrumbPage="Start"
         breadCrumbItems={[

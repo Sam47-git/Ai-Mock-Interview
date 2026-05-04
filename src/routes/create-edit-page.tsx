@@ -8,7 +8,7 @@ const CreateEditPage = () => {
   const { interview } = useInterview(interviewId);
 
   return (
-    <div className="my-4 flex-col w-full">
+    <div className="my-4 flex-col w-full" style={{ background: "#f5f2ee" }}>
       <FormMockInterview initialData={interview} />
     </div>
   );

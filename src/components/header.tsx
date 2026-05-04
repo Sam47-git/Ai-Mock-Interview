@@ -8,7 +8,7 @@ import ToggleContainer from "./toggle-container";
 
 const Header = () => {
   return (
-    <header className={cn("w-full border-b duration-150 transition-all ease-in-out")}
+    <header className={cn("w-full border-b duration-150 transition-all ease-in-out")} style={{ background: "#f5f2ee" }}
     >
       <Container>
         <div className="flex items-center justify-between gap-4 w-full">
