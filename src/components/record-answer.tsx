@@ -1,12 +1,11 @@
+
+
 import {
   CircleStop,
   Loader,
   Mic,
   RefreshCw,
   Save,
-  Video,
-  VideoOff,
-  WebcamIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import useSpeechToText, { type ResultType } from "react-hook-speech-to-text";
@@ -14,8 +13,6 @@ import { useParams } from "react-router-dom";
 import WebCam from "react-webcam";
 import { toast } from "sonner";
 import { parseAiJson } from "@/lib/ai-utils";
-
-
 import {
   addDoc,
   collection,
@@ -47,8 +44,8 @@ interface AIResponse {
 
 const RecordAnswer = ({
   question,
-  isWebCam,
-  setIsWebCam,
+  isWebCam,        // kept for API compatibility — always true during interview
+  setIsWebCam,     // kept for API compatibility — not called internally
   onSaved,
 }: RecordAnswerProps) => {
   const {
@@ -57,10 +54,7 @@ const RecordAnswer = ({
     results,
     startSpeechToText,
     stopSpeechToText,
-  } = useSpeechToText({
-    continuous: true,
-    useLegacyResults: false,
-  });
+  } = useSpeechToText({ continuous: true, useLegacyResults: false });
 
   const [userAnswer, setUserAnswer] = useState("");
   const [isAiGenerating, setIsAiGenerating] = useState(false);
@@ -70,7 +64,6 @@ const RecordAnswer = ({
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isFirstRestart = useRef(true);
-
   const isRecordingIntended = useRef(false);
 
   const { userId } = useAuth();
@@ -94,19 +87,13 @@ const RecordAnswer = ({
         setRecordingSeconds((prev) => prev + 1);
       }, 1000);
     } else {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
       setRecordingSeconds(0);
     }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [isRecording]);
 
   useEffect(() => {
-    // Reset everything when the question changes so old recordings don't carry over
     isRecordingIntended.current = false;
     isFirstRestart.current = true;
     stopSpeechToText();
@@ -119,23 +106,12 @@ const RecordAnswer = ({
     if (isRecording) {
       isRecordingIntended.current = false;
       stopSpeechToText();
-
       if (userAnswer?.length < 30) {
-        toast.error("Error", {
-          description: "Your answer should be more than 30 characters",
-        });
-
+        toast.error("Error", { description: "Your answer should be more than 30 characters" });
         return;
       }
-
-      //   ai result
-      const aiResult = await generateResult(
-        question.question,
-        question.answer,
-        userAnswer
-      );
-
-      setAiResult(aiResult);
+      const result = await generateResult(question.question, question.answer, userAnswer);
+      setAiResult(result);
     } else {
       isRecordingIntended.current = true;
       startSpeechToText();
@@ -165,27 +141,14 @@ const RecordAnswer = ({
       Return ONLY this JSON:
       {"accuracy":number,"completeness":number,"clarity":number,"rating":number,"feedback":"string"}
     `;
-
     try {
       const freshSession = createChatSession();
       const aiResult = await freshSession.sendMessage(prompt);
-
-      const parsedResult: AIResponse = parseAiJson<AIResponse>(
-        aiResult.response.text()
-      );
-      return parsedResult;
+      return parseAiJson<AIResponse>(aiResult.response.text());
     } catch (error) {
       console.log(error);
-      toast("Error", {
-        description: "An error occurred while generating feedback.",
-      });
-      return {
-        accuracy: 0,
-        completeness: 0,
-        clarity: 0,
-        rating: 0,
-        feedback: "Unable to generate feedback",
-      };
+      toast("Error", { description: "An error occurred while generating feedback." });
+      return { accuracy: 0, completeness: 0, clarity: 0, rating: 0, feedback: "Unable to generate feedback" };
     } finally {
       setIsAiGenerating(false);
     }
@@ -209,59 +172,40 @@ const RecordAnswer = ({
   };
 
   const saveUserAnswer = async () => {
-    if (!aiResult) {
-      return;
-    }
-
+    if (!aiResult) return;
     setLoading(true);
-
     const currentQuestion = question.question;
     try {
-      // query the firbase to check if the user answer already exists for this question
-
       const userAnswerQuery = query(
         collection(db, "userAnswers"),
         where("userId", "==", userId),
         where("question", "==", currentQuestion),
         where("mockIdRef", "==", interviewId)
       );
-
       const querySnap = await getDocs(userAnswerQuery);
-
-      // if the user already answerd the question dont save it again
       if (!querySnap.empty) {
-        console.log("Query Snap Size", querySnap.size);
-        toast.info("Already Answered", {
-          description: "You have already answered this question",
-        });
+        toast.info("Already Answered", { description: "You have already answered this question" });
         return;
-      } else {
-        // save the user answer
-
-        await addDoc(collection(db, "userAnswers"), {
-          mockIdRef: interviewId,
-          question: question.question,
-          correct_ans: question.answer,
-          user_ans: userAnswer,
-          feedback: aiResult.feedback,
-          rating: aiResult.rating,
-          accuracy: aiResult.accuracy,
-          completeness: aiResult.completeness,
-          clarity: aiResult.clarity,
-          userId,
-          createdAt: serverTimestamp(),
-        });
-
-        toast("Saved", { description: "Your answer has been saved.." });
-        onSaved?.();
       }
-
+      await addDoc(collection(db, "userAnswers"), {
+        mockIdRef: interviewId,
+        question: question.question,
+        correct_ans: question.answer,
+        user_ans: userAnswer,
+        feedback: aiResult.feedback,
+        rating: aiResult.rating,
+        accuracy: aiResult.accuracy,
+        completeness: aiResult.completeness,
+        clarity: aiResult.clarity,
+        userId,
+        createdAt: serverTimestamp(),
+      });
+      toast("Saved", { description: "Your answer has been saved.." });
+      onSaved?.();
       setUserAnswer("");
       stopSpeechToText();
     } catch (error) {
-      toast("Error", {
-        description: "An error occurred while generating feedback.",
-      });
+      toast("Error", { description: "An error occurred while saving." });
       console.log(error);
     } finally {
       setLoading(false);
@@ -274,13 +218,11 @@ const RecordAnswer = ({
       .filter((result): result is ResultType => typeof result !== "string")
       .map((result) => result.transcript)
       .join(" ");
-
     setUserAnswer(combineTranscripts);
   }, [results]);
 
   return (
     <div className="w-full flex flex-col items-center gap-8 mt-4">
-      {/* save modal */}
       <SaveModal
         isOpen={open}
         onClose={() => setOpen(false)}
@@ -288,31 +230,27 @@ const RecordAnswer = ({
         loading={loading}
       />
 
-      <div className="w-full h-[400px] md:w-96 flex flex-col items-center justify-center border p-4 bg-gray-50 rounded-md">
-        {isWebCam ? (
-          <WebCam
-            onUserMedia={() => setIsWebCam(true)}
-            onUserMediaError={() => setIsWebCam(false)}
-            className="w-full h-full object-cover rounded-md"
-          />
-        ) : (
-          <WebcamIcon className="min-w-24 min-h-24 text-muted-foreground" />
-        )}
+      {/* Webcam — always on, with LIVE indicator overlay */}
+      <div className="relative w-full h-[400px] md:w-96">
+        <WebCam
+          onUserMedia={() => setIsWebCam(true)}
+          onUserMediaError={() => setIsWebCam(false)}
+          className="w-full h-full object-cover rounded-md border"
+        />
+        {/* Live indicator — top-left corner of the webcam box */}
+        <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/50 rounded-full px-2.5 py-1">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+          </span>
+          <span className="text-[10px] font-semibold text-white tracking-wide">
+            LIVE
+          </span>
+        </div>
       </div>
 
-      <div className="flex itece justify-center gap-3">
-        <TooltipButton
-          content={isWebCam ? "Turn Off" : "Turn On"}
-          icon={
-            isWebCam ? (
-              <VideoOff className="min-w-5 min-h-5" />
-            ) : (
-              <Video className="min-w-5 min-h-5" />
-            )
-          }
-          onClick={() => setIsWebCam(!isWebCam)}
-        />
-
+      {/* Controls — Video toggle REMOVED, three buttons remain */}
+      <div className="flex items-center justify-center gap-3">
         <div className="relative flex flex-col items-center">
           {isRecording && (
             <span className="absolute -inset-1 rounded-full animate-ping bg-red-400 opacity-50" />
@@ -357,15 +295,12 @@ const RecordAnswer = ({
 
       <div className="w-full mt-4 p-4 border rounded-md bg-gray-50">
         <h2 className="text-lg font-semibold">Your Answer:</h2>
-
         <p className="text-sm mt-2 text-gray-700 whitespace-normal">
           {userAnswer || "Start recording to see your answer here"}
         </p>
-
         {interimResult && (
           <p className="text-sm text-gray-500 mt-2">
-            <strong>Current Speech:</strong>
-            {interimResult}
+            <strong>Current Speech:</strong> {interimResult}
           </p>
         )}
       </div>

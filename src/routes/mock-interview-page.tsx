@@ -1,60 +1,57 @@
+
+// Live interview page. Proctoring is active as soon as this mounts.
+// No header, no breadcrumbs, no nav — rendered inside InterviewLayout.
+//
+// Flow:
+//   1. useProctoring hook starts listening for violations
+//   2. Any violation → ProctoringModal overlays the screen
+//   3. 3rd violation → modal is pinned (can't dismiss without re-entering FS)
+//   4. 4th violation → <InterviewTerminated> replaces the entire page
+
 import { useParams } from "react-router-dom";
 import { LoaderPage } from "./loader-page";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Lightbulb } from "lucide-react";
 import { QuestionSection } from "@/components/question-section";
-import CustomBreadCrumb from "@/components/custom-bread-crumb";
 import { useInterview } from "@/hooks/use-interview";
-
+import { useProctoring } from "@/hooks/use-proctoring";
+import { ProctoringModal } from "@/components/proctoring-modal";
+import { InterviewTerminated } from "@/components/interview-terminated";
 
 const MockInterviewPage = () => {
   const { interviewId } = useParams<{ interviewId: string }>();
   const { interview, isLoading } = useInterview(interviewId);
 
-  if (isLoading) {
-    return <LoaderPage className="w-full h-[70vh]" />;
+  // enabled: true — monitoring starts immediately on mount
+  const proctoring = useProctoring({ enabled: true, maxWarnings: 3 });
+
+  if (isLoading) return <LoaderPage className="w-full h-[70vh]" />;
+
+  // ── Terminal state ────────────────────────────────────────────────────────
+  if (proctoring.isTerminated) {
+    return <InterviewTerminated interviewId={interviewId!} />;
   }
 
   return (
-    <div className="flex flex-col w-full gap-8 py-5" style={{ background: "#f5f2ee" }}>
-      <CustomBreadCrumb
-        breadCrumbPage="Start"
-        breadCrumbItems={[
-          { label: "Mock Interviews", link: "/generate" },
-          {
-            label: interview?.position || "",
-            link: `/generate/interview/${interview?.id}`,
-          },
-        ]}
-      />
-
-      <div className="w-full">
-        <Alert className="bg-sky-100 border border-sky-200 p-4 rounded-lg flex items-start gap-3">
-          <Lightbulb className="h-5 w-5 text-sky-600" />
-          <div>
-            <AlertTitle className="text-sky-800 font-semibold">
-              Important Note
-            </AlertTitle>
-            <AlertDescription className="text-sm text-sky-700 mt-1 leading-relaxed">
-              Press "Record Answer" to begin answering the question. Once you
-              finish the interview, you&apos;ll receive feedback comparing your
-              responses with the ideal answers.
-              <br />
-              <br />
-              <strong>Note:</strong>{" "}
-              <span className="font-medium">Your video is never recorded.</span>{" "}
-              You can disable the webcam anytime if preferred.
-            </AlertDescription>
-          </div>
-        </Alert>
-      </div>
-
-      {interview?.questions && interview?.questions.length > 0 && (
-        <div className="mt-4 w-full flex flex-col items-start gap-4">
-          <QuestionSection questions={interview?.questions} interviewId={interviewId!} />
-        </div>
+    <>
+      {/* Violation modal — rendered on top of everything when visible */}
+      {proctoring.showModal && proctoring.activeViolation && (
+        <ProctoringModal
+          warningCount={proctoring.warningCount}
+          maxWarnings={proctoring.maxWarnings}
+          violationType={proctoring.activeViolation}
+          isPinned={proctoring.isPinned}
+          onDismiss={proctoring.dismissModal}
+          onReEnterFullscreen={proctoring.requestFullscreen}
+        />
       )}
-    </div>
+
+      {/* Interview content — no breadcrumbs, no info banners, no nav */}
+      {interview?.questions && interview.questions.length > 0 && (
+        <QuestionSection
+          questions={interview.questions}
+          interviewId={interviewId!}
+        />
+      )}
+    </>
   );
 };
 
