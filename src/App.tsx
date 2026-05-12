@@ -42,6 +42,7 @@ const App = () => {
         >
           <Route path="/generate" element={<Generate />}>
             <Route index element={<Dashboard />} />
+            <Route path="create" element={<CreateEditPage />} />
             <Route path=":interviewId" element={<CreateEditPage />} />
             {/* Pre-flight page — breadcrumbs visible, no proctoring yet */}
             <Route

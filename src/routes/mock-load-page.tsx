@@ -1,12 +1,13 @@
 
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import WebCam from "react-webcam";
 import {
   Lightbulb,
   Loader,
   Maximize2,
+  Mic,
   RefreshCw,
   Sparkles,
   WebcamIcon,
@@ -21,10 +22,10 @@ import { toast } from "sonner";
 import {
   collection,
   deleteDoc,
+  doc,
   getDocs,
   query,
   updateDoc,
-  doc,
   where,
 } from "firebase/firestore";
 import { db } from "@/config/firebase.config";
@@ -37,51 +38,77 @@ const MockLoadPage = () => {
   const { userId } = useAuth();
   const navigate = useNavigate();
 
-  // Pre-flight state
+  // ── Pre-flight permission state ──────────────────────────────────────────
   const [webcamReady, setWebcamReady] = useState(false);
   const [webcamEnabled, setWebcamEnabled] = useState(false);
+  const [micReady, setMicReady] = useState(false);
+  const [micChecking, setMicChecking] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const micStreamRef = useRef<MediaStream | null>(null);
 
-  // Has-completed state
+  // ── Has-completed detection ──────────────────────────────────────────────
   const [hasCompleted, setHasCompleted] = useState(false);
   const [checkingCompletion, setCheckingCompletion] = useState(true);
 
-  // Try-again re-generation state
+  // ── Try Again re-generation state ────────────────────────────────────────
   const [isRegenerating, setIsRegenerating] = useState(false);
 
-  // ── Keep isFullscreen in sync with the real browser state ────────────────
+  // ── Sync fullscreen state ────────────────────────────────────────────────
   useEffect(() => {
     const sync = () => setIsFullscreen(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", sync);
     return () => document.removeEventListener("fullscreenchange", sync);
   }, []);
 
-  // ── Check if this interview was previously completed ──────────────────────
+  // ── Release mic stream on unmount ────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      micStreamRef.current?.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
+
+  // ── Check if interview was previously completed ──────────────────────────
   useEffect(() => {
     if (!interviewId || !userId) return;
-
-    const check = async () => {
-      try {
-        const snap = await getDocs(
-          query(
-            collection(db, "userAnswers"),
-            where("mockIdRef", "==", interviewId),
-            where("userId", "==", userId)
-          )
-        );
-        setHasCompleted(!snap.empty);
-      } catch {
-        // If query fails, default to not-completed — user can still start
-        setHasCompleted(false);
-      } finally {
-        setCheckingCompletion(false);
-      }
-    };
-
-    check();
+    getDocs(
+      query(
+        collection(db, "userAnswers"),
+        where("mockIdRef", "==", interviewId),
+        where("userId", "==", userId)
+      )
+    )
+      .then((snap) => setHasCompleted(!snap.empty))
+      .catch(() => setHasCompleted(false))
+      .finally(() => setCheckingCompletion(false));
   }, [interviewId, userId]);
 
-  // ── Fullscreen helper ─────────────────────────────────────────────────────
+  // ── Step handlers ────────────────────────────────────────────────────────
+  const handleEnableWebcam = () => {
+    if (!webcamEnabled) setWebcamEnabled(true);
+  };
+
+  const handleRequestMic = async () => {
+    if (micReady || micChecking) return;
+    setMicChecking(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Keep the stream alive so the permission isn't revoked before interview
+      micStreamRef.current = stream;
+      setMicReady(true);
+    } catch (err: any) {
+      const isDenied =
+        err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError";
+      toast.error("Microphone Access Denied", {
+        description: isDenied
+          ? "Please allow microphone permission in your browser settings and try again."
+          : "Could not access microphone. Check that no other app is using it.",
+      });
+      setMicReady(false);
+    } finally {
+      setMicChecking(false);
+    }
+  };
+
   const handleEnterFullscreen = async () => {
     try {
       await document.documentElement.requestFullscreen();
@@ -90,71 +117,53 @@ const MockLoadPage = () => {
     }
   };
 
-  // ── Webcam toggle (enable only — can't disable once on) ──────────────────
-  const handleEnableWebcam = () => {
-    if (!webcamEnabled) setWebcamEnabled(true);
-  };
-
-  // ── Start interview ───────────────────────────────────────────────────────
-  const canStart = webcamReady && isFullscreen;
+  // ── Start interview ──────────────────────────────────────────────────────
+  const canStart = webcamReady && micReady && isFullscreen;
 
   const handleStart = () => {
     if (!canStart) return;
+    // Release the pre-flight mic stream — RecordAnswer will open its own
+    micStreamRef.current?.getTracks().forEach((t) => t.stop());
     navigate(`/generate/interview/${interviewId}/start`, {
       state: { isWebCamEnabled: true },
     });
   };
 
-  // ── Try Again — regenerate questions then start ───────────────────────────
+  // ── Try Again — delete answers + regenerate questions ───────────────────
   const handleTryAgain = async () => {
     if (!canStart || !interview || !interviewId || !userId) return;
     setIsRegenerating(true);
-
     try {
-      // 1. Delete previous answers for this interview
-      const answersSnap = await getDocs(
+      // Delete previous answers
+      const snap = await getDocs(
         query(
           collection(db, "userAnswers"),
           where("mockIdRef", "==", interviewId),
           where("userId", "==", userId)
         )
       );
-      await Promise.all(answersSnap.docs.map((d) => deleteDoc(d.ref)));
+      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
 
-      // 2. Generate fresh questions via Gemini
+      // Generate new questions
       const prompt = `
         As an experienced prompt engineer, generate a JSON array containing
         5 technical interview questions along with detailed answers based on
-        the following job information. Each object in the array should have
-        the fields "question" and "answer", formatted as follows:
+        the following job information. Each object must have "question" and "answer".
 
-        [
-          { "question": "<Question text>", "answer": "<Answer text>" },
-          ...
-        ]
+        Job Position: ${interview.position}
+        Job Description: ${interview.description}
+        Years of Experience: ${interview.experience}
+        Tech Stacks: ${interview.techStack}
 
-        Job Information:
-        - Job Position: ${interview.position}
-        - Job Description: ${interview.description}
-        - Years of Experience Required: ${interview.experience}
-        - Tech Stacks: ${interview.techStack}
-
-        The questions should assess skills in ${interview.techStack} development
-        and best practices, problem-solving, and experience handling complex
-        requirements. Please format the output strictly as an array of JSON
-        objects without any additional labels, code blocks, or explanations.
-        Return only the JSON array with questions and answers.
         Generate DIFFERENT questions from any previous set — vary the topics
-        and difficulty to give a fresh interview experience.
+        and difficulty. Return ONLY the JSON array, no markdown or extra text.
       `;
-
       const session = createChatSession();
       const aiResult = await session.sendMessage(prompt);
       const newQuestions = parseAiJson<{ question: string; answer: string }[]>(
         aiResult.response.text()
       );
 
-      // 3. Update the interview document with new questions
       await updateDoc(doc(db, "interviews", interviewId), {
         questions: newQuestions,
       });
@@ -163,7 +172,7 @@ const MockLoadPage = () => {
         description: "Starting a fresh interview with different questions.",
       });
 
-      // 4. Navigate to the interview
+      micStreamRef.current?.getTracks().forEach((t) => t.stop());
       navigate(`/generate/interview/${interviewId}/start`, {
         state: { isWebCamEnabled: true },
       });
@@ -181,8 +190,12 @@ const MockLoadPage = () => {
     return <LoaderPage className="w-full h-[70vh]" />;
   }
 
-  const canStart_label = webcamReady && isFullscreen;
-  const actionLabel = hasCompleted ? "Try Again" : "Start Interview";
+  const handleAction = hasCompleted ? handleTryAgain : handleStart;
+  const actionLabel = isRegenerating
+    ? "Generating new questions..."
+    : hasCompleted
+    ? "Try Again"
+    : "Start Interview";
   const actionIcon = isRegenerating ? (
     <Loader className="w-4 h-4 animate-spin" />
   ) : hasCompleted ? (
@@ -190,7 +203,6 @@ const MockLoadPage = () => {
   ) : (
     <Sparkles className="w-4 h-4" />
   );
-  const handleAction = hasCompleted ? handleTryAgain : handleStart;
 
   return (
     <div className="flex flex-col w-full gap-8 py-5">
@@ -203,7 +215,7 @@ const MockLoadPage = () => {
       {/* Interview info card */}
       {interview && <InterviewPin interview={interview} onMockPage />}
 
-      {/* Rules banner */}
+      {/* Rules / info banner */}
       <Alert className="bg-yellow-100/60 border-yellow-200 p-4 rounded-lg flex items-start gap-3 -mt-3">
         <Lightbulb className="h-5 w-5 text-yellow-600 shrink-0 mt-0.5" />
         <div>
@@ -214,24 +226,25 @@ const MockLoadPage = () => {
             {hasCompleted ? (
               <p>
                 You've completed this interview before. Click{" "}
-                <strong>Try Again</strong> to get a brand-new set of questions
-                and start fresh. Your previous answers will be cleared.
+                <strong>Try Again</strong> to get a brand-new set of questions.
+                Your previous answers will be cleared.
               </p>
             ) : (
               <>
-                <p>Complete both steps below to unlock the Start button.</p>
+                <p>
+                  Grant all three permissions below before starting. This
+                  prevents unnecessary warnings during the interview.
+                </p>
                 <ul className="list-disc list-inside mt-1.5 space-y-1">
-                  <li>Keep your webcam on for the entire interview.</li>
                   <li>Stay in fullscreen — do not exit or switch tabs.</li>
                   <li>
                     You have <strong>3 warnings</strong>. A 4th violation ends
-                    the interview immediately.
+                    the interview.
+                  </li>
+                  <li>
+                    Your video and audio are <strong>never recorded</strong>.
                   </li>
                 </ul>
-                <p className="mt-1">
-                  <strong>Note:</strong> Your video is{" "}
-                  <strong>never recorded</strong>.
-                </p>
               </>
             )}
           </AlertDescription>
@@ -256,8 +269,9 @@ const MockLoadPage = () => {
         </div>
       </div>
 
-      {/* Two-step checklist + action button */}
+      {/* Three-step checklist */}
       <div className="flex flex-col items-center gap-3">
+
         {/* Step 1 — Webcam */}
         <button
           onClick={handleEnableWebcam}
@@ -272,7 +286,30 @@ const MockLoadPage = () => {
           {webcamReady ? "Webcam active ✓" : "Enable Webcam"}
         </button>
 
-        {/* Step 2 — Fullscreen */}
+        {/* Step 2 — Microphone */}
+        <button
+          onClick={handleRequestMic}
+          disabled={micReady || micChecking}
+          className={`w-full max-w-sm flex items-center gap-3 px-5 py-3.5 rounded-xl border-2 font-medium text-sm transition-all ${
+            micReady
+              ? "border-emerald-400 bg-emerald-50 text-emerald-700 cursor-default"
+              : "border-gray-300 bg-white text-gray-700 hover:border-gray-400 cursor-pointer"
+          }`}
+        >
+          <StepPip done={micReady} n={2} loading={micChecking} />
+          {micReady ? (
+            "Microphone active ✓"
+          ) : micChecking ? (
+            "Requesting permission..."
+          ) : (
+            <span className="flex items-center gap-2">
+              <Mic className="w-4 h-4" />
+              Enable Microphone
+            </span>
+          )}
+        </button>
+
+        {/* Step 3 — Fullscreen */}
         <button
           onClick={handleEnterFullscreen}
           disabled={isFullscreen}
@@ -282,7 +319,7 @@ const MockLoadPage = () => {
               : "border-gray-300 bg-white text-gray-700 hover:border-gray-400"
           }`}
         >
-          <StepPip done={isFullscreen} n={2} />
+          <StepPip done={isFullscreen} n={3} />
           {isFullscreen ? (
             "Fullscreen active ✓"
           ) : (
@@ -296,24 +333,28 @@ const MockLoadPage = () => {
         {/* Start / Try Again button */}
         <button
           onClick={handleAction}
-          disabled={!canStart_label || isRegenerating}
+          disabled={!canStart || isRegenerating}
           className={`mt-2 w-full max-w-sm flex items-center justify-center gap-2 px-5 py-3.5 rounded-xl font-semibold text-sm transition-all ${
-            canStart_label && !isRegenerating
+            canStart && !isRegenerating
               ? "bg-gray-900 text-white hover:bg-gray-800 shadow-md"
               : "bg-gray-200 text-gray-400 cursor-not-allowed"
           }`}
         >
-          {isRegenerating ? "Generating new questions..." : actionLabel}
+          {actionLabel}
           {actionIcon}
         </button>
 
-        {!canStart_label && (
+        {/* Helper text when button locked */}
+        {!canStart && (
           <p className="text-xs text-gray-400 text-center">
-            {!webcamReady && !isFullscreen
-              ? "Enable your webcam and fullscreen to continue"
-              : !webcamReady
-              ? "Enable your webcam to continue"
-              : "Enter fullscreen to continue"}
+            {[
+              !webcamReady && "webcam",
+              !micReady && "microphone",
+              !isFullscreen && "fullscreen",
+            ]
+              .filter(Boolean)
+              .join(", ")
+              .replace(/,([^,]*)$/, " and$1") + " required to continue"}
           </p>
         )}
       </div>
@@ -322,13 +363,29 @@ const MockLoadPage = () => {
 };
 
 // Reusable step pip
-const StepPip = ({ done, n }: { done: boolean; n: number }) => (
+const StepPip = ({
+  done,
+  n,
+  loading = false,
+}: {
+  done: boolean;
+  n: number;
+  loading?: boolean;
+}) => (
   <span
     className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-      done ? "bg-emerald-500 text-white" : "bg-gray-200 text-gray-500"
+      done
+        ? "bg-emerald-500 text-white"
+        : "bg-gray-200 text-gray-500"
     }`}
   >
-    {done ? "✓" : n}
+    {loading ? (
+      <Loader className="w-3 h-3 animate-spin text-gray-500" />
+    ) : done ? (
+      "✓"
+    ) : (
+      n
+    )}
   </span>
 );
 

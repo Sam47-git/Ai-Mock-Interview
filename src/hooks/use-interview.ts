@@ -10,10 +10,7 @@ export function useInterview(interviewId: string | undefined) {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!interviewId) {
-      navigate("/generate", { replace: true });
-      return;
-    }
+    if (!interviewId) return;
 
     setIsLoading(true);
     const fetchInterview = async () => {

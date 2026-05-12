@@ -1,5 +1,4 @@
 import FormMockInterview from "@/components/form-mock-interviews";
-import type { Interview } from "@/types";
 import { useParams } from "react-router-dom";
 import { useInterview } from "@/hooks/use-interview";
 
