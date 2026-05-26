@@ -45,12 +45,21 @@ const MockInterviewPage = () => {
       )}
 
       {/* Interview content — no breadcrumbs, no info banners, no nav */}
-      {interview?.questions && interview.questions.length > 0 && (
-        <QuestionSection
-          questions={interview.questions}
-          interviewId={interviewId!}
-        />
-      )}
+      {(() => {
+        if (!Array.isArray(interview?.questions) || interview.questions.length === 0) {
+          return (
+            <div className="text-center p-8 text-muted-foreground">
+              No questions found. Please go back and try again.
+            </div>
+          );
+        }
+        return (
+          <QuestionSection
+            questions={interview.questions}
+            interviewId={interviewId!}
+          />
+        );
+      })()}
     </>
   );
 };

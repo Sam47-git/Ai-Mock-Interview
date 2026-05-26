@@ -34,8 +34,10 @@ import {
 } from "./ui/form";
 import { Textarea } from "./ui/textarea";
 import { Input } from "./ui/input";
-import { createChatSession } from "@/scripts";
-import { parseAiJson } from "@/lib/ai-utils";
+import { createGenerationSession } from "@/scripts";
+import { parseAiJson, questionsSchema } from "@/lib/ai-utils";
+import type { QuestionsResult } from "@/lib/ai-utils";
+import { ZodError } from "zod";
 import Modal from "./modal";
 
 interface FormMockInterviewProps {
@@ -67,9 +69,6 @@ const FormMockInterview = ({ initialData }: FormMockInterviewProps) => {
     },
   });
 
-  // FIX: only use `loading` to control disabled/spinner state.
-  // Never read isValid or isSubmitted inside onSubmit — they are stale there.
-  // react-hook-form only calls onSubmit when validation passes, so no guard needed.
   const [loading, setLoading] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const navigate = useNavigate();
@@ -84,15 +83,21 @@ const FormMockInterview = ({ initialData }: FormMockInterviewProps) => {
 
   const generateAiResponse = async (data: FormData) => {
     const prompt = `
-      As an experienced prompt engineer, generate a JSON array containing
-      5 technical interview questions along with detailed answers based on
-      the following job information. Each object in the array should have
-      the fields "question" and "answer", formatted as follows:
+      You are an experienced technical interviewer conducting a VOICE-BASED mock interview.
+      Users will answer questions by speaking — they cannot write or run code.
 
-      [
-        { "question": "<Question text>", "answer": "<Answer text>" },
-        ...
-      ]
+      STRICT RULES — follow every one:
+      1. Generate EXACTLY 5 questions, no more, no fewer.
+      2. Questions must be CONCEPTUAL, BEHAVIORAL, or VERBAL EXPLANATION only.
+      3. Do NOT ask questions that require writing, typing, or running actual code.
+         BAD:  "Write a function to reverse a string."
+         BAD:  "Code a binary search algorithm."
+         GOOD: "How would you approach reversing a string, and what is the time complexity?"
+         GOOD: "Explain how binary search works and when you would use it."
+      4. Instead of "Write/Code/Implement X", ask "Explain how you would approach X"
+         or "What is your understanding of X and how does it work?"
+      5. Cover a mix of: conceptual understanding, real-world application,
+         problem-solving approach, and experience-based questions.
 
       Job Information:
       - Job Position: ${data.position}
@@ -100,22 +105,31 @@ const FormMockInterview = ({ initialData }: FormMockInterviewProps) => {
       - Years of Experience Required: ${data.experience}
       - Tech Stacks: ${data.techStack}
 
-      The questions should assess skills in ${data.techStack} development
-      and best practices, problem-solving, and experience handling complex
-      requirements. Please format the output strictly as an array of JSON
-      objects without any additional labels, code blocks, or explanations.
-      Return only the JSON array with questions and answers.
+      Respond with ONLY this exact JSON shape with exactly 5 questions:
+      {"questions": ["question 1", "question 2", "question 3", "question 4", "question 5"]}
+      Each question must be a plain string.
+      Do not use objects like {"question": "..."} inside the array.
+      No markdown, no code fences, no preamble.
     `;
 
-    const session = createChatSession();
+    const session = createGenerationSession();
     const aiResult = await session.sendMessage(prompt);
-    return parseAiJson<{ question: string; answer: string }[]>(
-      aiResult.response.text()
-    );
+    try {
+      const parsed: QuestionsResult = parseAiJson(
+        aiResult.response.text(),
+        questionsSchema
+      );
+      return parsed;
+    } catch (error: any) {
+      if (error instanceof SyntaxError) {
+        toast.error("Failed to generate questions. Please try again.");
+      } else if (error instanceof ZodError) {
+        toast.error("AI returned unexpected data. Please try again.");
+      }
+      throw error;
+    }
   };
 
-  // onSubmit is only called by react-hook-form when validation passes.
-  // No need to re-check isValid inside here — that's what caused the bug.
   const onSubmit: SubmitHandler<FormData> = async (data) => {
     try {
       setLoading(true);
@@ -123,18 +137,16 @@ const FormMockInterview = ({ initialData }: FormMockInterviewProps) => {
       const aiResult = await generateAiResponse(data);
 
       if (initialData) {
-        // Update existing interview
         await updateDoc(doc(db, "interviews", initialData.id), {
-          questions: aiResult,
+          questions: aiResult.questions,
           ...data,
           updatedAt: serverTimestamp(),
         });
       } else {
-        // Create new interview
         await addDoc(collection(db, "interviews"), {
           ...data,
           userId,
-          questions: aiResult,
+          questions: aiResult.questions,
           createdAt: serverTimestamp(),
         });
       }
@@ -148,10 +160,7 @@ const FormMockInterview = ({ initialData }: FormMockInterviewProps) => {
           description:
             "The AI service is experiencing high demand. Please try again in a few moments.",
         });
-      } else if (
-        error instanceof Error &&
-        error.message?.includes("fetch")
-      ) {
+      } else if (error instanceof Error && error.message?.includes("fetch")) {
         toast.error("Network Error", {
           description:
             "Failed to connect to the AI service. Check your internet connection.",

@@ -48,12 +48,6 @@ const steps = [
   { num:"03", icon:"📈", title:"Get actionable feedback",    desc:"Get a detailed breakdown of strengths and specific improvements so every session makes you noticeably better." },
 ];
 
-const testimonials = [
-  { initials:"AR", name:"Aarav R.",   role:"Software Engineer · Google", bg:"#c8502a", quote:"After 3 weeks of daily sessions I walked into my Google interview feeling genuinely prepared. The AI caught filler-word habits I didn't even know I had." },
-  { initials:"SL", name:"Selin L.",   role:"Product Manager · Amazon",   bg:"#2a5cc8", quote:"The role-specific questions were shockingly accurate. Half matched what I was actually asked at my Amazon loop. I couldn't believe it." },
-  { initials:"MT", name:"Marcus T.",  role:"Data Analyst · Stripe",      bg:"#2a8c5c", quote:"I'd been job hunting six months with no offers. Two weeks with InterviewAI and I had three. The structured feedback changed everything." },
-];
-
 // ── Main component ────────────────────────────────────────────────────────────
 const HomePage = () => (
   <div

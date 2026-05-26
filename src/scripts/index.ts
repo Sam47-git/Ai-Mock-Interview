@@ -42,6 +42,12 @@ const safetySettings = [
 // A shared chat session accumulates history across all questions,
 // causing Gemini to get confused and fail on later questions.
 // Each AI call should get a fresh session with no prior context.
-export const createChatSession = () =>
+export const createGenerationSession = () =>
   model.startChat({ generationConfig, safetySettings });
+
+export const createEvaluationSession = () =>
+  model.startChat({ generationConfig, safetySettings });
+
+/** @deprecated Use createGenerationSession() or createEvaluationSession() instead */
+export const createChatSession = createGenerationSession;
 

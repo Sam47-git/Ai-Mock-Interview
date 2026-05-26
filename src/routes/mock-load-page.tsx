@@ -1,5 +1,3 @@
-
-
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import WebCam from "react-webcam";
@@ -29,8 +27,10 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "@/config/firebase.config";
-import { createChatSession } from "@/scripts";
-import { parseAiJson } from "@/lib/ai-utils";
+import { createGenerationSession } from "@/scripts";
+import { parseAiJson, questionsSchema } from "@/lib/ai-utils";
+import type { QuestionsResult } from "@/lib/ai-utils";
+import { ZodError } from "zod";
 
 const MockLoadPage = () => {
   const { interviewId } = useParams<{ interviewId: string }>();
@@ -92,7 +92,6 @@ const MockLoadPage = () => {
     setMicChecking(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // Keep the stream alive so the permission isn't revoked before interview
       micStreamRef.current = stream;
       setMicReady(true);
     } catch (err: any) {
@@ -122,7 +121,6 @@ const MockLoadPage = () => {
 
   const handleStart = () => {
     if (!canStart) return;
-    // Release the pre-flight mic stream — RecordAnswer will open its own
     micStreamRef.current?.getTracks().forEach((t) => t.stop());
     navigate(`/generate/interview/${interviewId}/start`, {
       state: { isWebCamEnabled: true },
@@ -144,28 +142,56 @@ const MockLoadPage = () => {
       );
       await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
 
-      // Generate new questions
+      // Generate new questions — voice-based, no coding questions
       const prompt = `
-        As an experienced prompt engineer, generate a JSON array containing
-        5 technical interview questions along with detailed answers based on
-        the following job information. Each object must have "question" and "answer".
+        You are an experienced technical interviewer conducting a VOICE-BASED mock interview.
+        Users will answer questions by speaking — they cannot write or run code.
+
+        STRICT RULES — follow every one:
+        1. Generate EXACTLY 5 questions, no more, no fewer.
+        2. Questions must be CONCEPTUAL, BEHAVIORAL, or VERBAL EXPLANATION only.
+        3. Do NOT ask questions that require writing, typing, or running actual code.
+           BAD:  "Write a function to reverse a string."
+           BAD:  "Code a binary search algorithm."
+           GOOD: "How would you approach reversing a string, and what is the time complexity?"
+           GOOD: "Explain how binary search works and when you would use it."
+        4. Instead of "Write/Code/Implement X", ask "Explain how you would approach X"
+           or "What is your understanding of X and how does it work?"
+        5. Generate DIFFERENT questions from any previous set — vary the topics and difficulty.
+        6. Cover a mix of: conceptual understanding, real-world application,
+           problem-solving approach, and experience-based questions.
 
         Job Position: ${interview.position}
         Job Description: ${interview.description}
         Years of Experience: ${interview.experience}
         Tech Stacks: ${interview.techStack}
 
-        Generate DIFFERENT questions from any previous set — vary the topics
-        and difficulty. Return ONLY the JSON array, no markdown or extra text.
+        Respond with ONLY this exact JSON shape with exactly 5 questions:
+        {"questions": ["question 1", "question 2", "question 3", "question 4", "question 5"]}
+        Each question must be a plain string.
+        Do not use objects like {"question": "..."} inside the array.
+        No markdown, no code fences, no preamble.
       `;
-      const session = createChatSession();
+
+      const session = createGenerationSession();
       const aiResult = await session.sendMessage(prompt);
-      const newQuestions = parseAiJson<{ question: string; answer: string }[]>(
-        aiResult.response.text()
-      );
+      let newQuestions: QuestionsResult;
+      try {
+        newQuestions = parseAiJson<QuestionsResult>(
+          aiResult.response.text(),
+          questionsSchema
+        );
+      } catch (error: any) {
+        if (error instanceof SyntaxError) {
+          toast.error("Failed to generate questions. Please try again.");
+        } else if (error instanceof ZodError) {
+          toast.error("AI returned unexpected data. Please try again.");
+        }
+        throw error;
+      }
 
       await updateDoc(doc(db, "interviews", interviewId), {
-        questions: newQuestions,
+        questions: newQuestions.questions,
       });
 
       toast.success("New questions ready!", {
@@ -374,9 +400,7 @@ const StepPip = ({
 }) => (
   <span
     className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-      done
-        ? "bg-emerald-500 text-white"
-        : "bg-gray-200 text-gray-500"
+      done ? "bg-emerald-500 text-white" : "bg-gray-200 text-gray-500"
     }`}
   >
     {loading ? (

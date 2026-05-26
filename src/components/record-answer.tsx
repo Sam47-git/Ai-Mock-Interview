@@ -3,7 +3,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import WebCam from "react-webcam";
 import { toast } from "sonner";
-import { parseAiJson } from "@/lib/ai-utils";
+import { ZodError } from "zod";
+import { parseAiJson, evaluationSchema } from "@/lib/ai-utils";
+import type { EvaluationResult } from "@/lib/ai-utils";
 import {
   addDoc,
   collection,
@@ -16,10 +18,10 @@ import { db } from "@/config/firebase.config";
 import TooltipButton from "./tooltip-button";
 import { useAuth } from "@clerk/react";
 import SaveModal from "./save-model";
-import { createChatSession } from "@/scripts";
+import { createEvaluationSession } from "@/scripts";
 
 interface RecordAnswerProps {
-  question: { question: string; answer: string };
+  question: { question: string; answer: string } | string;
   isWebCam: boolean;
   setIsWebCam: (value: boolean) => void;
   onSaved?: () => void;
@@ -32,6 +34,12 @@ interface AIResponse {
   rating: number;
   feedback: string;
 }
+
+const getQuestionText = (q: RecordAnswerProps["question"]): string =>
+  typeof q === "string" ? q : q?.question ?? "";
+
+const getAnswerText = (q: RecordAnswerProps["question"]): string =>
+  typeof q === "string" ? "" : q?.answer ?? "";
 
 const RecordAnswer = ({
   question,
@@ -49,17 +57,12 @@ const RecordAnswer = ({
   const [recordingSeconds, setRecordingSeconds] = useState(0);
 
   const recognitionRef = useRef<any>(null);
-
-  // true while the user wants to be recording (survives browser auto-stops)
+  const MAX_RECORDING_SECONDS = 180;
   const isRecordingRef = useRef(false);
-
-  // true only when the USER explicitly clicked Stop — tells onend to finalize
   const userStoppedRef = useRef(false);
-
   const finalTranscriptRef = useRef("");
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Always-current refs so onend closures never go stale
   const questionRef = useRef(question);
   useEffect(() => { questionRef.current = question; }, [question]);
 
@@ -88,7 +91,7 @@ const RecordAnswer = ({
     rec.lang = "en-US";
 
     rec.onstart = () => {
-      // Don't update isRecordingRef here — it's already set before .start()
+      isRecordingRef.current = true;
       setIsRecording(true);
     };
 
@@ -107,16 +110,12 @@ const RecordAnswer = ({
     };
 
     rec.onerror = (event: any) => {
-      // "aborted" = we called rec.abort() ourselves, ignore
       if (event.error === "aborted") return;
-      // "no-speech" = browser auto-paused, onend will restart it
       if (event.error === "no-speech") return;
-
       console.error("Speech error:", event.error);
       isRecordingRef.current = false;
-      userStoppedRef.current = true; // prevent restart loop on real errors
+      userStoppedRef.current = true;
       setIsRecording(false);
-
       if (event.error === "not-allowed") {
         toast.error("Microphone denied", {
           description: "Allow microphone in browser settings then reload.",
@@ -127,7 +126,7 @@ const RecordAnswer = ({
     };
 
     rec.onend = async () => {
-      // CASE 1 — User deliberately clicked Stop: finalize and generate feedback
+      // CASE 1 — User deliberately clicked Stop
       if (userStoppedRef.current) {
         userStoppedRef.current = false;
         isRecordingRef.current = false;
@@ -142,38 +141,56 @@ const RecordAnswer = ({
         }
 
         const currentQuestion = questionRef.current;
+        const questionText = getQuestionText(currentQuestion);
+        const answerText = getAnswerText(currentQuestion);
+
         setIsAiGeneratingRef.current(true);
 
         const prompt = `
           You are a strict technical interviewer. Evaluate the user's answer briefly
           and return ONLY a JSON object — no extra text, no markdown.
 
-          Question: "${currentQuestion.question}"
+          Question: "${questionText}"
           User Answer: "${answer}"
-          Correct Answer: "${currentQuestion.answer}"
+          Correct Answer: "${answerText}"
 
           Score using this rubric:
           - "accuracy": 0-2 (0=wrong, 1=partially correct, 2=correct)
           - "completeness": 0-2 (0=missing key points, 1=partially covered, 2=well covered)
           - "clarity": 0-1 (0=unclear, 1=clear)
-          - "rating": accuracy + completeness + clarity (number, max 5)
           - "feedback": MAX 3 sentences. Start with what was good,
             then the 1-2 most important missing points only.
 
+          Do NOT include a rating field.
+
           Return ONLY this JSON:
-          {"accuracy":number,"completeness":number,"clarity":number,"rating":number,"feedback":"string"}
+          {"accuracy":number,"completeness":number,"clarity":number,"feedback":"string"}
         `;
 
         try {
-          const session = createChatSession();
+          const session = createEvaluationSession();
           const result = await session.sendMessage(prompt);
-          const parsed = parseAiJson<AIResponse>(result.response.text());
-          setAiResultRef.current(parsed);
+          const parsed = parseAiJson(result.response.text(), evaluationSchema);
+          const rating = Math.min(5, Math.max(0,
+            parsed.accuracy + parsed.completeness + parsed.clarity
+          ));
+          const safeResult: EvaluationResult & { rating: number } = {
+            ...parsed,
+            rating,
+          };
+          setAiResultRef.current(safeResult);
+          // No toast here — Save button becoming active is the signal to the user
         } catch (err: any) {
           console.error("generateResult error:", err);
-          toast.error("Feedback error", {
-            description: "Could not generate feedback. Try recording again.",
-          });
+          if (err instanceof SyntaxError) {
+            toast.error("Could not parse AI feedback. Please try again.");
+          } else if (err instanceof ZodError) {
+            toast.error("AI returned unexpected data. Please try again.");
+          } else {
+            toast.error("Feedback error", {
+              description: "Could not generate feedback. Try recording again.",
+            });
+          }
         } finally {
           setIsAiGeneratingRef.current(false);
         }
@@ -181,48 +198,77 @@ const RecordAnswer = ({
         return;
       }
 
-      // CASE 2 — Browser auto-stopped (silence timeout) but user is still recording:
-      // Restart recognition transparently so the Stop button stays visible
+      // CASE 2 — Browser auto-stopped but user is still recording: restart
       if (isRecordingRef.current) {
         try {
           rec.start();
         } catch {
-          // start() can throw if already started — safe to ignore
+          // safe to ignore
         }
         return;
       }
 
-      // CASE 3 — Something else ended it (question change reset, etc.)
+      // CASE 3 — Something else ended it
       setIsRecording(false);
     };
 
     recognitionRef.current = rec;
     return () => {
       isRecordingRef.current = false;
-      userStoppedRef.current = true; // prevent restart on unmount
+      userStoppedRef.current = true;
       rec.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── Stop recording ────────────────────────────────────────────────────────
+  const stopRecording = useCallback(() => {
+    if (!recognitionRef.current) return;
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    userStoppedRef.current = true;
+    isRecordingRef.current = false;
+    setIsRecording(false);
+    setRecordingSeconds(0);
+    recognitionRef.current.abort();
+  }, []);
+
+  const stopRecordingRef = useRef(stopRecording);
+  useEffect(() => { stopRecordingRef.current = stopRecording; }, [stopRecording]);
+
   // ── Timer ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (isRecording) {
-      timerRef.current = setInterval(
-        () => setRecordingSeconds((s) => s + 1),
-        1000
-      );
+      timerRef.current = setInterval(() => {
+        setRecordingSeconds((s) => {
+          const next = s + 1;
+          if (next >= MAX_RECORDING_SECONDS) {
+            toast.info("Max recording time reached", {
+              description: "Recording stopped automatically after 3 minutes.",
+            });
+            stopRecordingRef.current();
+          }
+          return next;
+        });
+      }, 1000);
     } else {
-      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
       setRecordingSeconds(0);
     }
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, [isRecording]);
 
   // ── Reset when question changes ───────────────────────────────────────────
   useEffect(() => {
     isRecordingRef.current = false;
-    userStoppedRef.current = true; // stop restart loop
+    userStoppedRef.current = true;
     recognitionRef.current?.abort();
     setIsRecording(false);
     finalTranscriptRef.current = "";
@@ -230,9 +276,9 @@ const RecordAnswer = ({
     setInterimText("");
     setAiResult(null);
     setRecordingSeconds(0);
-    // Re-arm for next question
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     setTimeout(() => { userStoppedRef.current = false; }, 100);
-  }, [question.question]);
+  }, [getQuestionText(question)]);
 
   // ── Start recording ───────────────────────────────────────────────────────
   const startRecording = () => {
@@ -243,15 +289,13 @@ const RecordAnswer = ({
     setAiResult(null);
     userStoppedRef.current = false;
     isRecordingRef.current = true;
-    recognitionRef.current.start();
-  };
-
-  // ── Stop recording (user-initiated) ──────────────────────────────────────
-  const stopRecording = () => {
-    if (!recognitionRef.current || !isRecordingRef.current) return;
-    userStoppedRef.current = true;  // tells onend to finalize, not restart
-    recognitionRef.current.stop();
-    // UI updates (setIsRecording false) happen in onend after transcripts flush
+    setIsRecording(true);
+    try {
+      recognitionRef.current.start();
+    } catch {
+      isRecordingRef.current = false;
+      setIsRecording(false);
+    }
   };
 
   // ── Record Again ──────────────────────────────────────────────────────────
@@ -259,11 +303,13 @@ const RecordAnswer = ({
     isRecordingRef.current = false;
     userStoppedRef.current = true;
     recognitionRef.current?.abort();
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     setIsRecording(false);
     finalTranscriptRef.current = "";
     setUserAnswer("");
     setInterimText("");
     setAiResult(null);
+    setRecordingSeconds(0);
     setTimeout(() => {
       userStoppedRef.current = false;
       isRecordingRef.current = true;
@@ -273,14 +319,27 @@ const RecordAnswer = ({
 
   // ── Save to Firestore ─────────────────────────────────────────────────────
   const saveUserAnswer = async () => {
-    if (!aiResult) return;
+    const questionText = getQuestionText(question);
+    const answerText = getAnswerText(question);
+
+    if (!aiResult || !userId || !interviewId || !questionText) {
+      console.error("Save blocked — missing required values:", {
+        aiResult: !!aiResult,
+        userId,
+        interviewId,
+        questionText,
+      });
+      toast.error("Could not save. Missing interview data.");
+      return;
+    }
+
     setLoading(true);
     try {
       const snap = await getDocs(
         query(
           collection(db, "userAnswers"),
           where("userId", "==", userId),
-          where("question", "==", question.question),
+          where("question", "==", questionText),
           where("mockIdRef", "==", interviewId)
         )
       );
@@ -292,8 +351,8 @@ const RecordAnswer = ({
       }
       await addDoc(collection(db, "userAnswers"), {
         mockIdRef: interviewId,
-        question: question.question,
-        correct_ans: question.answer,
+        question: questionText,
+        correct_ans: answerText,
         user_ans: finalTranscriptRef.current.trim(),
         feedback: aiResult.feedback,
         rating: aiResult.rating,
@@ -330,7 +389,7 @@ const RecordAnswer = ({
         loading={loading}
       />
 
-      {/* Webcam — always on */}
+      {/* Webcam */}
       <div className="relative w-full h-[400px] md:w-96">
         <WebCam
           onUserMedia={() => setIsWebCam(true)}
@@ -361,19 +420,23 @@ const RecordAnswer = ({
           />
         )}
 
-        {/* Stop — shown only while recording, with red pulse + timer */}
+        {/* Stop — plain button to guarantee click fires */}
         {isRecording && (
-          <div className="relative flex flex-col items-center">
-            <span className="absolute -inset-1 rounded-full animate-ping bg-red-400 opacity-50" />
-            <TooltipButton
-              content="Stop Recording"
-              icon={<CircleStop className="min-w-5 min-h-5 text-red-500" />}
-              onClick={stopRecording}
+          <div className="relative">
+            <span className="absolute -inset-1 rounded-full animate-ping bg-red-400 opacity-50 pointer-events-none" />
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                stopRecording();
+              }}
               disabled={isAiGenerating}
-            />
-            <span className="text-xs text-red-500 font-mono mt-1">
-              {formatTime(recordingSeconds)}
-            </span>
+              className="relative z-10 p-2 rounded-full bg-white border border-red-300 hover:bg-red-50 disabled:opacity-50 transition"
+              title="Stop Recording"
+            >
+              <CircleStop className="min-w-5 min-h-5 text-red-500" />
+            </button>
           </div>
         )}
 
@@ -406,6 +469,31 @@ const RecordAnswer = ({
         />
       </div>
 
+      {/* Timer */}
+      {isRecording && (
+        <div className="flex flex-col items-center gap-2">
+          <div className="text-xs text-red-500 font-mono">
+            {formatTime(recordingSeconds)} / {formatTime(MAX_RECORDING_SECONDS)}
+          </div>
+          <div className="w-24 h-1 bg-gray-200 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-red-400 transition-all duration-1000"
+              style={{
+                width: `${(recordingSeconds / MAX_RECORDING_SECONDS) * 100}%`,
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* AI generating indicator */}
+      {isAiGenerating && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader className="w-4 h-4 animate-spin" />
+          <span>Generating feedback, please wait...</span>
+        </div>
+      )}
+
       {/* Transcript */}
       <div className="w-full p-4 border rounded-md bg-gray-50">
         <h2 className="text-lg font-semibold">Your Answer:</h2>
@@ -416,16 +504,6 @@ const RecordAnswer = ({
           <p className="text-sm text-gray-400 mt-2 italic">{interimText}</p>
         )}
       </div>
-
-      {/* AI feedback preview */}
-      {aiResult && (
-        <div className="w-full p-4 border border-emerald-200 rounded-md bg-emerald-50">
-          <p className="text-xs font-semibold text-emerald-700 mb-1">
-            AI Feedback — Rating: {aiResult.rating} / 5
-          </p>
-          <p className="text-sm text-emerald-800">{aiResult.feedback}</p>
-        </div>
-      )}
     </div>
   );
 };

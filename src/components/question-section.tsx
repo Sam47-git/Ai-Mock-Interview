@@ -6,7 +6,7 @@ import TooltipButton from "./tooltip-button";
 import RecordAnswer from "./record-answer";
 
 interface QuestionSectionProps {
-  questions: { question: string; answer: string }[];
+  questions: string[];
   interviewId: string;
 }
 
@@ -21,9 +21,11 @@ export const QuestionSection = ({ questions, interviewId }: QuestionSectionProps
   const [currentSpeech, setCurrentSpeech] =
     useState<SpeechSynthesisUtterance | null>(null);
 
+  // FIX: was passing questions[activeIndex]?.question (undefined on strings)
+  // Now passes the string directly
   const handlePlayQuestion = (qst: string) => {
+    if (!qst) return;
     if (isPlaying && currentSpeech) {
-      // stop the speech if already playing
       window.speechSynthesis.cancel();
       setIsPlaying(false);
       setCurrentSpeech(null);
@@ -33,8 +35,6 @@ export const QuestionSection = ({ questions, interviewId }: QuestionSectionProps
         window.speechSynthesis.speak(speech);
         setIsPlaying(true);
         setCurrentSpeech(speech);
-
-        // handle the speech end
         speech.onend = () => {
           setIsPlaying(false);
           setCurrentSpeech(null);
@@ -65,6 +65,8 @@ export const QuestionSection = ({ questions, interviewId }: QuestionSectionProps
     setSavedQuestions((prev) => [...prev, activeIndex]);
   };
 
+  const activeQuestion = questions[activeIndex] ?? "";
+
   return (
     <div className="w-full min-h-96 border rounded-md p-4 space-y-6">
 
@@ -78,9 +80,7 @@ export const QuestionSection = ({ questions, interviewId }: QuestionSectionProps
               <div
                 key={i}
                 onClick={() => {
-                  if (isClickable) {
-                    setActiveIndex(i);
-                  }
+                  if (isClickable) setActiveIndex(i);
                 }}
                 className={cn(
                   "px-3 py-1 rounded-full text-xs font-medium border",
@@ -98,16 +98,16 @@ export const QuestionSection = ({ questions, interviewId }: QuestionSectionProps
           })}
         </div>
 
-        {/* Single action button — top right, only one visible at a time */}
+        {/* Single action button — top right */}
         <div className="ml-4 shrink-0">
           {(() => {
             const isLastQuestion = activeIndex === questions.length - 1;
             const isSaved = savedQuestions.includes(activeIndex);
 
             if (isLastQuestion && isSaved) {
-              // Last question answered → Submit only
               return (
                 <button
+                  type="button"
                   onClick={handleSubmit}
                   className="px-4 py-1.5 bg-emerald-600 text-white text-sm rounded-md hover:bg-emerald-700"
                 >
@@ -117,9 +117,9 @@ export const QuestionSection = ({ questions, interviewId }: QuestionSectionProps
             }
 
             if (isLastQuestion && !isSaved) {
-              // Last question not answered → Skip & Submit
               return (
                 <button
+                  type="button"
                   onClick={handleSkip}
                   className="px-4 py-1.5 text-sm text-gray-500 border border-gray-300 rounded-md hover:bg-gray-50"
                 >
@@ -129,9 +129,9 @@ export const QuestionSection = ({ questions, interviewId }: QuestionSectionProps
             }
 
             if (!isLastQuestion && isSaved) {
-              // Question answered → Next
               return (
                 <button
+                  type="button"
                   onClick={handleNext}
                   className="px-4 py-1.5 bg-emerald-600 text-white text-sm rounded-md hover:bg-emerald-700"
                 >
@@ -140,9 +140,9 @@ export const QuestionSection = ({ questions, interviewId }: QuestionSectionProps
               );
             }
 
-            // Default: question not answered → Skip
             return (
               <button
+                type="button"
                 onClick={handleSkip}
                 className="px-4 py-1.5 text-sm text-gray-500 border border-gray-300 rounded-md hover:bg-gray-50"
               >
@@ -153,15 +153,15 @@ export const QuestionSection = ({ questions, interviewId }: QuestionSectionProps
         </div>
       </div>
 
-      {/* Current question */}
+      {/* Current question text */}
       <p className="text-base text-left tracking-wide text-neutral-500">
-        {questions[activeIndex]?.question}
+        {activeQuestion}
       </p>
 
-      {/* Play button */}
+      {/* Play button — FIX: pass activeQuestion (string) not .question (undefined) */}
       <div className="w-full flex items-center justify-end">
         <TooltipButton
-          content={isPlaying ? "Stop" : "Start"}
+          content={isPlaying ? "Stop" : "Read question aloud"}
           icon={
             isPlaying ? (
               <VolumeX className="min-w-5 min-h-5 text-muted-foreground" />
@@ -169,13 +169,13 @@ export const QuestionSection = ({ questions, interviewId }: QuestionSectionProps
               <Volume2 className="min-w-5 min-h-5 text-muted-foreground" />
             )
           }
-          onClick={() => handlePlayQuestion(questions[activeIndex]?.question)}
+          onClick={() => handlePlayQuestion(activeQuestion)}
         />
       </div>
 
-      {/* Record Answer */}
+      {/* Record Answer — passes plain string, RecordAnswer handles it */}
       <RecordAnswer
-        question={questions[activeIndex]}
+        question={activeQuestion}
         isWebCam={isWebCam}
         setIsWebCam={setIsWebCam}
         onSaved={handleQuestionSaved}
