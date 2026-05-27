@@ -116,8 +116,6 @@ const Feedback = () => {
     return <LoaderPage className="w-full h-[70vh]" />;
   }
 
-  // Bug 7 fix: removed hardcoded inline style={{ background: "#f5f2ee" }}
-  // and replaced with a Tailwind class so theming is not bypassed
   return (
     <div className="flex flex-col w-full gap-8 py-5 bg-[#f5f2ee]">
       <div className="flex items-center justify-between w-full gap-2">
@@ -154,8 +152,6 @@ const Feedback = () => {
         const ratingPct       = Math.round((feedbacks.reduce((a, f) => a + (f.rating ?? 0), 0) / (feedbacks.length * 5)) * 100);
         const accuracyPct     = Math.round((feedbacks.reduce((a, f) => a + (f.accuracy ?? 0), 0) / (feedbacks.length * 2)) * 100);
         const completenessPct = Math.round((feedbacks.reduce((a, f) => a + (f.completeness ?? 0), 0) / (feedbacks.length * 2)) * 100);
-        // Bug 6 fix: removed meaningless * 1; clarity max per question is 1,
-        // so dividing by feedbacks.length alone is correct and consistent
         const clarityPct      = Math.round((feedbacks.reduce((a, f) => a + (f.clarity ?? 0), 0) / feedbacks.length) * 100);
 
         const sorted = [...feedbacks].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));

@@ -19,8 +19,6 @@ const Dashboard = () => {
   const { userId } = useAuth();
 
   useEffect(() => {
-    // Bug 4 fix: guard against undefined userId while Clerk is still loading
-    // to prevent a Firestore query with where("userId", "==", undefined)
     if (!userId) return;
 
     setLoading(true);
@@ -55,8 +53,7 @@ const Dashboard = () => {
   }, [userId]);
 
 
-  // Bug 7 fix: removed hardcoded inline style={{ background: "#f5f2ee" }}
-  // and replaced with a Tailwind class so theming is not bypassed
+
   return (
     <div className="bg-[#f5f2ee]">
       <div className="flex w-full items-center justify-between mt-4">

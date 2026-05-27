@@ -60,8 +60,6 @@ const RecordAnswer = ({
   const MAX_RECORDING_SECONDS = 180;
   const isRecordingRef = useRef(false);
   const userStoppedRef = useRef(false);
-  // Bug 2 fix: separate flag so recordNewAnswer and question-change resets
-  // don't trigger the "Answer too short" toast / AI evaluation in onend
   const skipEvaluationRef = useRef(false);
   const finalTranscriptRef = useRef("");
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -135,7 +133,6 @@ const RecordAnswer = ({
         isRecordingRef.current = false;
         setIsRecording(false);
 
-        // Bug 2 fix: recordNewAnswer and question-change resets set this flag
         // before calling abort() so we skip evaluation here entirely
         if (skipEvaluationRef.current) {
           skipEvaluationRef.current = false;
@@ -242,9 +239,7 @@ const RecordAnswer = ({
     isRecordingRef.current = false;
     setIsRecording(false);
     setRecordingSeconds(0);
-    // Bug 3 fix: use stop() instead of abort() so the browser finishes
-    // processing any in-flight audio before firing onend, preserving the
-    // user's last spoken words in finalTranscriptRef
+
     recognitionRef.current.stop();
   }, []);
 
@@ -279,12 +274,11 @@ const RecordAnswer = ({
   }, [isRecording]);
 
   // ── Reset when question changes ───────────────────────────────────────────
-  // Bug 5 fix: derive the dep value outside the array so React can track it
   const activeQuestionText = getQuestionText(question);
   useEffect(() => {
     isRecordingRef.current = false;
     userStoppedRef.current = true;
-    // Bug 2 fix: set skipEvaluationRef before abort so onend doesn't
+  
     // show the "Answer too short" toast when the question changes
     skipEvaluationRef.current = true;
     recognitionRef.current?.abort();
@@ -320,7 +314,6 @@ const RecordAnswer = ({
   const recordNewAnswer = useCallback(() => {
     isRecordingRef.current = false;
     userStoppedRef.current = true;
-    // Bug 2 fix: set skipEvaluationRef before abort so onend doesn't
     // show the "Answer too short" toast for this intentional reset
     skipEvaluationRef.current = true;
     recognitionRef.current?.abort();
