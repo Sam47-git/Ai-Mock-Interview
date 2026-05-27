@@ -19,6 +19,10 @@ const Dashboard = () => {
   const { userId } = useAuth();
 
   useEffect(() => {
+    // Bug 4 fix: guard against undefined userId while Clerk is still loading
+    // to prevent a Firestore query with where("userId", "==", undefined)
+    if (!userId) return;
+
     setLoading(true);
     const interviewQuery = query(
       collection(db, "interviews"),
@@ -51,25 +55,28 @@ const Dashboard = () => {
   }, [userId]);
 
 
-  return <div style={{ background: "#f5f2ee" }}>
-     <div className="flex w-full items-center justify-between mt-4">
-      <Headings
-        title="Dashboard"
-        description="Create and start you AI Mock interview"
-      />
-      <Link to={"/generate/create"}>
-        <Button size={"sm"}>
-          <Plus className="min-w-5 min-h-5 mr-1" />
-          Add new
-        </Button>
-      </Link>
-    </div>
-    
-    <Separator className="my-8" />
+  // Bug 7 fix: removed hardcoded inline style={{ background: "#f5f2ee" }}
+  // and replaced with a Tailwind class so theming is not bypassed
+  return (
+    <div className="bg-[#f5f2ee]">
+      <div className="flex w-full items-center justify-between mt-4">
+        <Headings
+          title="Dashboard"
+          description="Create and start you AI Mock interview"
+        />
+        <Link to={"/generate/create"}>
+          <Button size={"sm"}>
+            <Plus className="min-w-5 min-h-5 mr-1" />
+            Add new
+          </Button>
+        </Link>
+      </div>
 
-    {/* Content section */}
+      <Separator className="my-8" />
 
-    <div className="md:grid md:grid-cols-3 gap-3 py-4">
+      {/* Content section */}
+
+      <div className="md:grid md:grid-cols-3 gap-3 py-4">
         {loading ? (
           Array.from({ length: 6 }).map((_, index) => (
             <Skeleton key={index} className="h-24 md:h-32 rounded-md" />
@@ -105,6 +112,7 @@ const Dashboard = () => {
         )}
       </div>
     </div>
+  );
 };
 
 export default Dashboard;
