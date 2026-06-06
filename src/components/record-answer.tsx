@@ -28,11 +28,12 @@ interface RecordAnswerProps {
 }
 
 interface AIResponse {
-  accuracy: number;
-  completeness: number;
-  clarity: number;
-  rating: number;
-  feedback: string;
+  accuracy:       number;
+  completeness:   number;
+  clarity:        number;
+  rating:         number;
+  feedback:       string;
+  correct_answer: string;
 }
 
 const getQuestionText = (q: RecordAnswerProps["question"]): string =>
@@ -60,18 +61,96 @@ const RecordAnswer = ({
   const MAX_RECORDING_SECONDS = 180;
   const isRecordingRef = useRef(false);
   const userStoppedRef = useRef(false);
-  const skipEvaluationRef = useRef(false);
   const finalTranscriptRef = useRef("");
+  // Snapshot of the transcript that was sent to the AI — saveUserAnswer
+  // reads this so user_ans always matches exactly what was evaluated.
+  const evaluatedAnswerRef = useRef("");
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const questionRef = useRef(question);
   useEffect(() => { questionRef.current = question; }, [question]);
 
-  const setAiResultRef = useRef(setAiResult);
-  const setIsAiGeneratingRef = useRef(setIsAiGenerating);
-
   const { userId } = useAuth();
   const { interviewId } = useParams();
+
+  // ── Evaluate answer with AI ───────────────────────────────────────────────
+  // Called directly from stopRecording so evaluation is triggered
+  // deterministically by the user action, not by the browser's onend event.
+  // This fixes the Save button not enabling after the recording stops.
+  const evaluateAnswer = useCallback(async () => {
+    const answer = finalTranscriptRef.current.trim();
+
+    if (answer.length < 30) {
+      toast.error("Answer too short", {
+        description: "Record at least 30 characters before saving.",
+      });
+      return;
+    }
+
+    // Snapshot the transcript so saveUserAnswer always saves what was evaluated
+    evaluatedAnswerRef.current = answer;
+
+    const currentQuestion = questionRef.current;
+    const questionText = getQuestionText(currentQuestion);
+    const answerText = getAnswerText(currentQuestion);
+
+    setIsAiGenerating(true);
+
+    const prompt = `
+      You are a strict technical interviewer. Evaluate the user's answer briefly
+      and return ONLY a JSON object — no extra text, no markdown.
+
+      Question: "${questionText}"
+      User Answer: "${answer}"
+
+      Score using this rubric:
+      - "accuracy": 0-2 (0=wrong, 1=partially correct, 2=correct)
+      - "completeness": 0-2 (0=missing key points, 1=partially covered, 2=well covered)
+      - "clarity": 0-1 (0=unclear, 1=clear)
+      - "feedback": MAX 3 sentences. Start with what was good,
+        then the 1-2 most important missing points only.
+      - "correct_answer": A concise model answer for this question (2-4 sentences).
+
+      Do NOT include a rating field.
+
+      Return ONLY this JSON:
+      {"accuracy":number,"completeness":number,"clarity":number,"feedback":"string","correct_answer":"string"}
+    `;
+
+    try {
+      const session = createEvaluationSession();
+      const result = await session.sendMessage(prompt);
+      const parsed = parseAiJson(result.response.text(), evaluationSchema);
+      const rating = Math.min(5, Math.max(0,
+        parsed.accuracy + parsed.completeness + parsed.clarity
+      ));
+      const safeResult: EvaluationResult & { rating: number } = {
+        ...parsed,
+        rating,
+      };
+      setAiResult(safeResult);
+      // Save button becoming active is the signal to the user
+    } catch (err: any) {
+      console.error("evaluateAnswer error:", err);
+      // Clear snapshot so a stale answer can't be saved after an error
+      evaluatedAnswerRef.current = "";
+      if (err instanceof SyntaxError) {
+        toast.error("Could not parse AI feedback. Please try again.");
+      } else if (err instanceof ZodError) {
+        toast.error("AI returned unexpected data. Please try again.");
+      } else {
+        toast.error("Feedback error", {
+          description: "Could not generate feedback. Try recording again.",
+        });
+      }
+    } finally {
+      setIsAiGenerating(false);
+    }
+  }, []); // stable — only reads refs and calls stable React setters
+
+  // Keep a ref so the timer callback always calls the latest version
+  const evaluateAnswerRef = useRef(evaluateAnswer);
+  useEffect(() => { evaluateAnswerRef.current = evaluateAnswer; }, [evaluateAnswer]);
 
   // ── Build recognition instance once ──────────────────────────────────────
   useEffect(() => {
@@ -115,7 +194,7 @@ const RecordAnswer = ({
       if (event.error === "no-speech") return;
       console.error("Speech error:", event.error);
       isRecordingRef.current = false;
-      userStoppedRef.current = true;
+      userStoppedRef.current = false;
       setIsRecording(false);
       if (event.error === "not-allowed") {
         toast.error("Microphone denied", {
@@ -126,82 +205,15 @@ const RecordAnswer = ({
       }
     };
 
-    rec.onend = async () => {
-      // CASE 1 — User deliberately clicked Stop
+    // onend is now only responsible for state cleanup and auto-restart.
+    // AI evaluation is triggered directly from stopRecording, not here,
+    // so it is not affected by browser inconsistencies in onend timing.
+    rec.onend = () => {
+      // CASE 1 — User deliberately stopped (or reset): just clean up state
       if (userStoppedRef.current) {
         userStoppedRef.current = false;
         isRecordingRef.current = false;
         setIsRecording(false);
-
-        // before calling abort() so we skip evaluation here entirely
-        if (skipEvaluationRef.current) {
-          skipEvaluationRef.current = false;
-          return;
-        }
-
-        const answer = finalTranscriptRef.current.trim();
-        if (answer.length < 30) {
-          toast.error("Answer too short", {
-            description: "Record at least 30 characters before saving.",
-          });
-          return;
-        }
-
-        const currentQuestion = questionRef.current;
-        const questionText = getQuestionText(currentQuestion);
-        const answerText = getAnswerText(currentQuestion);
-
-        setIsAiGeneratingRef.current(true);
-
-        const prompt = `
-          You are a strict technical interviewer. Evaluate the user's answer briefly
-          and return ONLY a JSON object — no extra text, no markdown.
-
-          Question: "${questionText}"
-          User Answer: "${answer}"
-          Correct Answer: "${answerText}"
-
-          Score using this rubric:
-          - "accuracy": 0-2 (0=wrong, 1=partially correct, 2=correct)
-          - "completeness": 0-2 (0=missing key points, 1=partially covered, 2=well covered)
-          - "clarity": 0-1 (0=unclear, 1=clear)
-          - "feedback": MAX 3 sentences. Start with what was good,
-            then the 1-2 most important missing points only.
-
-          Do NOT include a rating field.
-
-          Return ONLY this JSON:
-          {"accuracy":number,"completeness":number,"clarity":number,"feedback":"string"}
-        `;
-
-        try {
-          const session = createEvaluationSession();
-          const result = await session.sendMessage(prompt);
-          const parsed = parseAiJson(result.response.text(), evaluationSchema);
-          const rating = Math.min(5, Math.max(0,
-            parsed.accuracy + parsed.completeness + parsed.clarity
-          ));
-          const safeResult: EvaluationResult & { rating: number } = {
-            ...parsed,
-            rating,
-          };
-          setAiResultRef.current(safeResult);
-          // No toast here — Save button becoming active is the signal to the user
-        } catch (err: any) {
-          console.error("generateResult error:", err);
-          if (err instanceof SyntaxError) {
-            toast.error("Could not parse AI feedback. Please try again.");
-          } else if (err instanceof ZodError) {
-            toast.error("AI returned unexpected data. Please try again.");
-          } else {
-            toast.error("Feedback error", {
-              description: "Could not generate feedback. Try recording again.",
-            });
-          }
-        } finally {
-          setIsAiGeneratingRef.current(false);
-        }
-
         return;
       }
 
@@ -225,7 +237,6 @@ const RecordAnswer = ({
       userStoppedRef.current = true;
       rec.abort();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Stop recording ────────────────────────────────────────────────────────
@@ -239,8 +250,12 @@ const RecordAnswer = ({
     isRecordingRef.current = false;
     setIsRecording(false);
     setRecordingSeconds(0);
-
-    recognitionRef.current.stop();
+    // abort() gives us the transcript that is already committed in
+    // finalTranscriptRef and lets evaluateAnswer run immediately and
+    // reliably, without depending on the browser's onend event timing.
+    recognitionRef.current.abort();
+    // Trigger evaluation directly — this is what enables the Save button
+    evaluateAnswerRef.current();
   }, []);
 
   const stopRecordingRef = useRef(stopRecording);
@@ -278,27 +293,24 @@ const RecordAnswer = ({
   useEffect(() => {
     isRecordingRef.current = false;
     userStoppedRef.current = true;
-  
-    // show the "Answer too short" toast when the question changes
-    skipEvaluationRef.current = true;
     recognitionRef.current?.abort();
     setIsRecording(false);
     finalTranscriptRef.current = "";
+    evaluatedAnswerRef.current = "";
     setUserAnswer("");
     setInterimText("");
     setAiResult(null);
     setRecordingSeconds(0);
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     setTimeout(() => { userStoppedRef.current = false; }, 100);
-  }, [activeQuestionText]); // Bug 5 fix: variable reference, not inline call
+  }, [activeQuestionText]);
 
   // ── Start recording ───────────────────────────────────────────────────────
   const startRecording = () => {
     if (!recognitionRef.current || isRecordingRef.current) return;
-    finalTranscriptRef.current = "";
-    setUserAnswer("");
     setInterimText("");
     setAiResult(null);
+    evaluatedAnswerRef.current = "";
     userStoppedRef.current = false;
     isRecordingRef.current = true;
     setIsRecording(true);
@@ -311,15 +323,15 @@ const RecordAnswer = ({
   };
 
   // ── Record Again ──────────────────────────────────────────────────────────
+  // Explicitly wipes everything and starts fresh — distinct from pause/resume.
   const recordNewAnswer = useCallback(() => {
     isRecordingRef.current = false;
     userStoppedRef.current = true;
-    // show the "Answer too short" toast for this intentional reset
-    skipEvaluationRef.current = true;
     recognitionRef.current?.abort();
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     setIsRecording(false);
     finalTranscriptRef.current = "";
+    evaluatedAnswerRef.current = "";
     setUserAnswer("");
     setInterimText("");
     setAiResult(null);
@@ -364,21 +376,22 @@ const RecordAnswer = ({
         return;
       }
       await addDoc(collection(db, "userAnswers"), {
-        mockIdRef: interviewId,
-        question: questionText,
-        correct_ans: answerText,
-        user_ans: finalTranscriptRef.current.trim(),
-        feedback: aiResult.feedback,
-        rating: aiResult.rating,
-        accuracy: aiResult.accuracy,
+        mockIdRef:   interviewId,
+        question:    questionText,
+        correct_ans: aiResult.correct_answer,  // ← was: answerText (always "")
+        user_ans:    evaluatedAnswerRef.current,
+        feedback:    aiResult.feedback,
+        rating:      aiResult.rating,
+        accuracy:    aiResult.accuracy,
         completeness: aiResult.completeness,
-        clarity: aiResult.clarity,
+        clarity:     aiResult.clarity,
         userId,
-        createdAt: serverTimestamp(),
+        createdAt:   serverTimestamp(),
       });
       toast.success("Saved", { description: "Your answer has been saved." });
       onSaved?.();
       finalTranscriptRef.current = "";
+      evaluatedAnswerRef.current = "";
       setUserAnswer("");
     } catch (err) {
       toast.error("Save failed", { description: "Could not save. Try again." });
@@ -390,7 +403,7 @@ const RecordAnswer = ({
   };
 
   const formatTime = (s: number) =>
-    `${Math.floor(s / 60).toString().padStart(2, "00")}:${(s % 60)
+    `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60)
       .toString()
       .padStart(2, "0")}`;
 

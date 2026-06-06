@@ -9,12 +9,12 @@ export function parseAiJson<T>(raw: string, schema: ZodSchema<T>): T {
 }
 
 // ── Schema 1: Answer evaluation ───────────────────────────────────────────────
-// Used by: record-answer.tsx
 export const evaluationSchema = z.object({
-  feedback:     z.string().min(1).max(500),
-  accuracy:     z.number().int().min(0).max(2),
-  completeness: z.number().int().min(0).max(2),
-  clarity:      z.number().int().min(0).max(1),
+  feedback:       z.string().min(1).max(500),
+  accuracy:       z.number().int().min(0).max(2),
+  completeness:   z.number().int().min(0).max(2),
+  clarity:        z.number().int().min(0).max(1),
+  correct_answer: z.string().min(1).max(1000),
 });
 
 export type EvaluationResult = z.infer<typeof evaluationSchema>;
